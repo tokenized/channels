@@ -43,17 +43,19 @@ type InvoicesMessageType uint8
 //     buyer either quits, modifies the invoice, or keeps the same invoice and sends it back to the
 //     vendor.
 
-// Invoice is a message from the vendor representing an approved set of items to buy.
+// Invoice is a message from the vendor representing an approved set of items to buy and the
+// incomplete payment.
 type Invoice struct {
-	Items     InvoiceItems `bsor:"1" json:"items"`
-	Vendor    *Identity    `bsor:"2" json:"vendor,omitempty"`
-	Recipient *Identity    `bsor:"3" json:"recipient,omitempty"`
-	Notes     *string      `bsor:"4" json:"notes,omitempty"`
+	Items InvoiceItems `bsor:"1" json:"items"`
+	Notes *string      `bsor:"2" json:"notes,omitempty"`
+	Tx    ExpandedTx   `bsor:"3" json:"tx"`
 }
 
-// PurchaseOrder is the same structure as an invoice but uses a different type so the message is a
-// different type.
-type PurchaseOrder Invoice
+// PurchaseOrder contains items the buyer wishes to purchase.
+type PurchaseOrder struct {
+	Items InvoiceItems `bsor:"1" json:"items"`
+	Notes *string      `bsor:"2" json:"notes,omitempty"`
+}
 
 // Payment is a payment transaction that embeds the approved invoice.
 type Payment struct {
