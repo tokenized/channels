@@ -23,7 +23,8 @@ var (
 	InvoicesMessageTypeMenu          = InvoicesMessageType(2)
 	InvoicesMessageTypePurchaseOrder = InvoicesMessageType(3)
 	InvoicesMessageTypeInvoice       = InvoicesMessageType(4)
-	InvoicesMessageTypePayment       = InvoicesMessageType(5)
+	InvoicesMessageTypeInvoiceTx     = InvoicesMessageType(5)
+	InvoicesMessageTypePayment       = InvoicesMessageType(6)
 
 	ErrNotInvoice                 = errors.New("Not Invoices")
 	ErrUnsupportedInvoicesVersion = errors.New("Unsupported Invoices Version")
@@ -35,35 +36,43 @@ type InvoicesMessageType uint8
 
 // Invoices provides a method for negotiating payments for products or services.
 // Workflow:
-//   1. Vendor sends Menu of Services/Products.
-//   2. Buyer sends Purchase Order with requested Services/Products from the menu.
-//   3. Vendor approves and sends the buyer an Invoice corresponding to the PurchaseOrder
-//     or the vendor rejects and sends modified Invoice. This negotiation can continue indefinitely.
-//   4. If the vendor approved then the buyer sends a payment that embeds the invoice otherwise the
+//   1. Vendor sends Menu containing available Services/Products.
+//   2. Buyer sends PurchaseOrder with requested Services/Products from the menu.
+//   3. Vendor approves and sends the buyer an InvoiceTx corresponding to the PurchaseOrder
+//     or the vendor rejects and sends modified PurchaseOrder for buyer approval. This negotiation
+//     can continue indefinitely.
+//   4. If the vendor approved then the buyer sends a Payment that embeds the invoice otherwise the
 //     buyer either quits, modifies the invoice, or keeps the same invoice and sends it back to the
 //     vendor.
 
-// Invoice is a message from the vendor representing an approved set of items to buy and the
-// incomplete payment.
+// Invoice is a message from the vendor representing an approved set of items to buy.
+// Identity is implicit based on the relationship and the key that signed the message.
+// This message is to be included in an output of the payment tx.
 type Invoice struct {
 	Items InvoiceItems `bsor:"1" json:"items"`
 	Notes *string      `bsor:"2" json:"notes,omitempty"`
-	Tx    ExpandedTx   `bsor:"3" json:"tx"`
+}
+
+// InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
+// payments for the items contained in the invoice.
+type InvoiceTx struct {
+	Tx ExpandedTx `bsor:"1" json:"tx"`
 }
 
 // PurchaseOrder contains items the buyer wishes to purchase.
+// Identity is implicit based on the relationship and the key that signed the message.
 type PurchaseOrder struct {
 	Items InvoiceItems `bsor:"1" json:"items"`
 	Notes *string      `bsor:"2" json:"notes,omitempty"`
 }
 
-// Payment is a payment transaction that embeds the approved invoice.
-type Payment struct {
+// InvoicePayment is a payment transaction that embeds the approved invoice.
+type InvoicePayment struct {
 	Tx ExpandedTx `bsor:"1" json:"tx"`
 }
 
-func (p *Payment) ExtractInvoice() (*Invoice, error) {
-	for _, txout := range p.Tx.Tx.TxOut {
+func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
+	for _, txout := range tx.TxOut {
 		protocolIDs, payload, err := envelopeV1.Parse(bytes.NewReader(txout.LockingScript))
 		if err != nil {
 			continue
@@ -89,9 +98,14 @@ func (p *Payment) ExtractInvoice() (*Invoice, error) {
 	return nil, ErrInvoiceMissing
 }
 
+type TxOut struct {
+	Value         uint64         `bsor:"1" json:"value"`
+	LockingScript bitcoin.Script `bsor:"2" json:"locking_script"`
+}
+
 type ExpandedTx struct {
-	Tx      *wire.MsgTx  `bsor:"1" json:"tx"`
-	Outputs []wire.TxOut `bsor:"2" json:"outputs"` // outputs spent by inputs of tx
+	Tx      *wire.MsgTx `bsor:"1" json:"tx"`      // marshals as raw bytes
+	Outputs []*TxOut    `bsor:"2" json:"outputs"` // outputs spent by inputs of tx
 }
 
 // RequestMenu is a request to receive the current menu.
@@ -132,31 +146,14 @@ type TokenID struct {
 }
 
 type InvoiceItem struct {
-	Item
-	Price    Price    `bsor:"5" json:"price"` // specified payment option
-	Quantity *uint64  `bsor:"6" json:"quantity,omitempty"`
-	Amount   *float64 `bsor:"7" json:"amount,omitempty"`
+	ItemID          bitcoin.Hex `bsor:"1" json:"id"` // Unique identifier for the item
+	ItemDescription string      `bsor:"2" json:"item_description"`
+	Price           Price       `bsor:"3" json:"price"` // specified payment option
+	Quantity        *uint64     `bsor:"4" json:"quantity,omitempty"`
+	Amount          *float64    `bsor:"5" json:"amount,omitempty"`
 }
 
 type InvoiceItems []*InvoiceItem
-
-type Identity struct {
-	ID        bitcoin.Hex        `bsor:"1" json:"id"`
-	PublicKey *bitcoin.PublicKey `bsor:"2" json:"public_key,omitempty"`
-	Name      *string            `bsor:"3" json:"name,omitempty"`
-	Email     *string            `bsor:"4" json:"email,omitempty"`
-	Handle    *string            `bsor:"5" json:"handle,omitempty"`
-	Phone     *string            `bsor:"6" json:"phone,omitempty"`
-	Location  *Location          `bsor:"7" json:"location,omitempty"`
-}
-
-type Location struct {
-	Streets    []string `bsor:"1" json:"streets"`
-	City       string   `bsor:"2" json:"city"`
-	Province   *string  `bsor:"3" json:"province,omitempty"` // State
-	Country    *string  `bsor:"4" json:"country,omitempty"`
-	PostalCode *string  `bsor:"5" json:"postal_code,omitempty"`
-}
 
 func InvoicesMessageForType(messageType InvoicesMessageType) interface{} {
 	switch InvoicesMessageType(messageType) {
@@ -168,8 +165,10 @@ func InvoicesMessageForType(messageType InvoicesMessageType) interface{} {
 		return &PurchaseOrder{}
 	case InvoicesMessageTypeInvoice:
 		return &Invoice{}
+	case InvoicesMessageTypeInvoiceTx:
+		return &InvoiceTx{}
 	case InvoicesMessageTypePayment:
-		return &Payment{}
+		return &InvoicePayment{}
 	case InvoicesMessageTypeInvalid:
 		return nil
 	default:
@@ -187,7 +186,9 @@ func InvoicesMessageTypeFor(message interface{}) InvoicesMessageType {
 		return InvoicesMessageTypePurchaseOrder
 	case *Invoice:
 		return InvoicesMessageTypeInvoice
-	case *Payment:
+	case *InvoiceTx:
+		return InvoicesMessageTypeInvoiceTx
+	case *InvoicePayment:
 		return InvoicesMessageTypePayment
 	default:
 		return InvoicesMessageTypeInvalid
@@ -234,6 +235,8 @@ func (v *InvoicesMessageType) SetString(s string) error {
 		*v = InvoicesMessageTypePurchaseOrder
 	case "invoice":
 		*v = InvoicesMessageTypeInvoice
+	case "invoice_tx":
+		*v = InvoicesMessageTypeInvoiceTx
 	case "payment":
 		*v = InvoicesMessageTypePayment
 	default:
@@ -254,6 +257,8 @@ func (v InvoicesMessageType) String() string {
 		return "purchase_order"
 	case InvoicesMessageTypeInvoice:
 		return "invoice"
+	case InvoicesMessageTypeInvoiceTx:
+		return "invoice_tx"
 	case InvoicesMessageTypePayment:
 		return "payment"
 	default:

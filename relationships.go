@@ -20,19 +20,63 @@ var (
 	RelationshipsMessageTypeInitiation = RelationshipsMessageType(1)
 	RelationshipsMessageTypeAccept     = RelationshipsMessageType(2)
 
+	RelationshipRejectReasonInvalid = RelationshipRejectReason(0)
+
+	// RelationshipRejectReasonChannelInUse means the peer channel this was received on is already
+	// in use for a relationship.
+	RelationshipRejectReasonChannelInUse = RelationshipRejectReason(1)
+
+	// RelationshipRejectReasonUnwanted means the relationship is not wanted.
+	RelationshipRejectReasonUnwanted = RelationshipRejectReason(2)
+
 	ErrNotRelationships                = errors.New("Not Relationships")
 	ErrUnsupportedRelationshipsVersion = errors.New("Unsupported Relationships Version")
 	ErrUnsupportedRelationshipsMessage = errors.New("Unsupported Relationships Message")
 )
 
 type RelationshipsMessageType uint8
+type RelationshipRejectReason uint8
 
 type RelationshipInitiation struct {
-	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key"`
+	Identity Identity `bsor:"1" json:"identity"`
+
+	// PeerChannel for relationship that accept message should be sent to.
+	PeerChannel *PeerChannel `bsor:"2" json:"peer_channel,omitempty"`
 }
 
 type RelationshipAccept struct {
-	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key"`
+	Identity Identity `bsor:"1" json:"identity"`
+
+	// PeerChannel to use if different from the channel initiation message was received on.
+	PeerChannel *PeerChannel `bsor:"2" json:"peer_channel,omitempty"`
+}
+
+type RelationshipReject struct {
+	Reason RelationshipRejectReason `bsor:"1" json:"reason"`
+	Note   string                   `bsor:"2" json:"note"`
+}
+
+type Identity struct {
+	ID        bitcoin.Hex       `bsor:"1" json:"id,omitempty"`
+	PublicKey bitcoin.PublicKey `bsor:"2" json:"public_key,omitempty"`
+	Name      *string           `bsor:"3" json:"name,omitempty"`
+	Email     *string           `bsor:"4" json:"email,omitempty"`
+	Handle    *string           `bsor:"5" json:"handle,omitempty"`
+	Phone     *string           `bsor:"6" json:"phone,omitempty"`
+	Location  *Location         `bsor:"7" json:"location,omitempty"`
+}
+
+type Location struct {
+	Streets    []string `bsor:"1" json:"streets"`
+	City       string   `bsor:"2" json:"city"`
+	Province   *string  `bsor:"3" json:"province,omitempty"` // State
+	Country    *string  `bsor:"4" json:"country,omitempty"`
+	PostalCode *string  `bsor:"5" json:"postal_code,omitempty"`
+}
+
+type PeerChannel struct {
+	URL        string `bsor:"1" json:"url"`
+	WriteToken string `bsor:"2" json:"write_token"`
 }
 
 func RelationshipsMessageForType(messageType RelationshipsMessageType) interface{} {
@@ -109,6 +153,61 @@ func (v RelationshipsMessageType) String() string {
 		return "initiation"
 	case RelationshipsMessageTypeAccept:
 		return "accept"
+	default:
+		return ""
+	}
+}
+
+func (v *RelationshipRejectReason) UnmarshalJSON(data []byte) error {
+	if len(data) < 2 {
+		return fmt.Errorf("Too short for RelationshipRejectReason : %d", len(data))
+	}
+
+	return v.SetString(string(data[1 : len(data)-1]))
+}
+
+func (v RelationshipRejectReason) MarshalJSON() ([]byte, error) {
+	s := v.String()
+	if len(s) == 0 {
+		return []byte("null"), nil
+	}
+
+	return []byte(fmt.Sprintf("\"%s\"", s)), nil
+}
+
+func (v RelationshipRejectReason) MarshalText() ([]byte, error) {
+	s := v.String()
+	if len(s) == 0 {
+		return nil, fmt.Errorf("Unknown RelationshipRejectReason value \"%d\"", uint8(v))
+	}
+
+	return []byte(s), nil
+}
+
+func (v *RelationshipRejectReason) UnmarshalText(text []byte) error {
+	return v.SetString(string(text))
+}
+
+func (v *RelationshipRejectReason) SetString(s string) error {
+	switch s {
+	case "in_use":
+		*v = RelationshipRejectReasonChannelInUse
+	case "unwanted":
+		*v = RelationshipRejectReasonUnwanted
+	default:
+		*v = RelationshipRejectReasonInvalid
+		return fmt.Errorf("Unknown RelationshipRejectReason value \"%s\"", s)
+	}
+
+	return nil
+}
+
+func (v RelationshipRejectReason) String() string {
+	switch v {
+	case RelationshipRejectReasonChannelInUse:
+		return "in_use"
+	case RelationshipRejectReasonUnwanted:
+		return "unwanted"
 	default:
 		return ""
 	}

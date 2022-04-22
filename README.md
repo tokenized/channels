@@ -8,13 +8,15 @@ This deprecates much of paymail as users can directly exchange channels via any 
 
 ## Peer Channels
 
-Peer channels (previously SPV channels) can be very scalable and can be directly paid for by this protocol using micro-transactions. At their base they are simply a method for delivering messages of any kind and allowing the owner of the channel to receive them without having to always be online. They are like email stripped down to the very base component.
+Peer channels (previously SPV channels) can be very scalable and can be directly paid for via this protocol using micro-transactions. At their base they are simply a method for delivering messages of any kind and allowing the owner of the channel to receive them without having to always be online. They are like email stripped down to the very base component. Peer channels are simply a message delivery system for these protocols. They are not meant to retain messages after being read. The application should handle that with a data storage service or something else. Not all messages must be saved, but signed data relating to  establishing identity, invoices, and other data relevant to the supported protocols should be retained indefinitely.
 
 The current implementation allows listening to a channel on a websocket, but I think an important feature can be listening to an entire account on one websocket so if anyone posts to any of your channels you can see it instantly.
 
 ## Encoding
 
-Channels messages are encoded in Bitcoin Script Object Representations (BSOR). It is a bitcoin script encoding that supports object structures like JSON. It also uses predefined structures like Protocol Buffers and is fully binary. BSOR is important because many negotiations will end with a message being embedded in a transaction on chain, so the data should be encoded as small as possible. Many channels may also be high throughput so decoding JSON as opposed to reading binary data can be costly.
+Channels messages are wrapped in the [Envelope v1](https://github.com/tokenized/envelope) protocol to identify the data protocols used. This allows combining protocols like message signing, encryption, and different message type protocols. For example, any data protocol message can be wrapped with the message signing protocol to sign it. This doesn't require the data protocol or implementation to know anything about the signing protocol or vice versa.
+
+Channels data protocols use Bitcoin Script Object Representations (BSOR). It is a bitcoin script encoding that supports object structures like JSON. It also uses predefined structures like Protocol Buffers and is fully binary. BSOR is important because many negotiations will end with a message being embedded in a transaction on chain, so the data should be encoded as small as possible and in a bitcoin script. Many channels may also be high throughput so decoding JSON text can be costly as opposed to reading BSOR binary data.
 
 ## Security
 
@@ -104,7 +106,7 @@ In user to service communication the service will often be operated by an automa
 
 1. A peer channel service posts their public peer channel URL on their website.
 2. Alice posts a `Relationship Initiation` message to that channel with her public key and states that she doesn't have any peer channels yet and provides a method to respond.
-3. The peer channel service responds outside of peer channels with a message including a peer channel URL with a read token for Alice to use. Then posts a `Relationship Accept` message including a public key and a private peer channel URL and write token specific to that relationship.
+3. The peer channel service responds outside of peer channels with a message including a peer channel URL with a read token for Alice to use. Since Alice doesn't know the write token she can't use this channel for anything except receiving messages from the peer channel service. The peer channel service then posts a `Relationship Accept` message including a public key and a private peer channel URL and write token specific to that relationship.
 4. Alice posts a `Request Menu` message to the private channel requesting the list of available services and prices.
 5. The peer channel service responds with a `Menu` message that lists their available services and prices.
 6. Alice chooses the services she wants, creates a `Purchase Order` message, and posts that to the peer channel.
