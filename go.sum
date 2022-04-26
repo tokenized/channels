@@ -75,6 +75,8 @@ github.com/tokenized/envelope v1.0.1-0.20220422021100-ba2a7e6c3935/go.mod h1:aiK
 github.com/tokenized/pkg v0.2.0/go.mod h1:QJIVlpGu5AUytmnjmMGEZGJo59LUOG4xpi/PUN9RLLg=
 github.com/tokenized/pkg v0.4.1-0.20220422020725-d5c454068beb h1:mmmkZBSfWS3oCaDAATlvRYZfc7AzjUbE4/9WbqCVLng=
 github.com/tokenized/pkg v0.4.1-0.20220422020725-d5c454068beb/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
+github.com/tokenized/pkg v0.4.1-0.20220426001741-8202f429c095 h1:q6VE7Edx2FSxSnRbl8YsTCWdITZ/WfTt2KB1lLJjJEY=
+github.com/tokenized/pkg v0.4.1-0.20220426001741-8202f429c095/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
 github.com/tyler-smith/go-bip32 v0.0.0-20170922074101-2c9cfd177564 h1:NXXyQVeRVLK8Xu27/hkkjwVOZLk5v4ZBEvvMtqMqznM=
 github.com/tyler-smith/go-bip32 v0.0.0-20170922074101-2c9cfd177564/go.mod h1:0/YuQQF676+d4CMNclTqGUam1EDwz0B8o03K9pQqA3c=
 go.uber.org/atomic v1.6.0/go.mod h1:sABNBOSYdrvTF6hTgEIbc7YasKWGhgEQZyfxyTvoXHQ=

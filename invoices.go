@@ -9,6 +9,8 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
+	"github.com/tokenized/pkg/merchant_api"
+	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -35,19 +37,59 @@ var (
 type InvoicesMessageType uint8
 
 // Invoices provides a method for negotiating payments for products or services.
-// Workflow:
+// Vendor Workflow:
 //   1. Vendor sends Menu containing available Services/Products.
 //   2. Buyer sends PurchaseOrder with requested Services/Products from the menu.
-//   3. Vendor approves and sends the buyer an InvoiceTx corresponding to the PurchaseOrder
-//     or the vendor rejects and sends modified PurchaseOrder for buyer approval. This negotiation
-//     can continue indefinitely.
-//   4. If the vendor approved then the buyer sends a Payment that embeds the invoice otherwise the
-//     buyer either quits, modifies the invoice, or keeps the same invoice and sends it back to the
-//     vendor.
+//   3. A. Vendor approves and sends the buyer an InvoiceTx containing an Invoice corresponding to
+//      the PurchaseOrder and
+//      B. Vendor rejects and sends a modified PurchaseOrder for buyer approval. This negotiation
+//      can continue indefinitely.
+//   4. If the vendor approved then the buyer sends a InvoicePayment that embeds the invoice
+//     otherwise the buyer either quits, modifies the invoice, or keeps the same invoice and sends
+//     it back to the vendor.
+//
+// User to User Workflow (Request To Send Payment):
+//   1. User A sends either a PurchaseOrder to request to pay User B. The purchase order describes
+//   the purpose of the payment.
+//   2. User B responds with an InvoiceTx to specify how User A should make the payment. The
+//   InvoiceTx is an incomplete tx paying User B and optionally an Invoice output describing the
+//   purpose of the payment.
+//   3. User A completes the transaction by adding inputs and other payment information required,
+//   signs it, and responds with an InvoicePayment message.
+//
+// User to User Workflow (Request To Receive Payment):
+//   1. User A sends an InvoiceTx to request payment from User B. The InvoiceTx contains an
+//   incomplete tx paying User A and optionally an Invoice output describing the purpose of the
+//   payment.
+//   2. User B completes the transaction by adding inputs and other payment information required,
+//   signs it, and responds with an InvoicePayment message.
+//   3. User A signs any inputs they might have on the transaction and broadcasts it.
 
-// Invoice is a message from the vendor representing an approved set of items to buy.
+// RequestMenu is a request to receive the current menu.
+type RequestMenu struct {
+}
+
+// Menu represents a set of items available to include in an invoice.
+type Menu struct {
+	Items  Items     `bsor:"1" json:"items"`
+	Vendor *Identity `bsor:"2" json:"vendor,omitempty"`
+}
+
+// PurchaseOrder contains items the buyer wishes to purchase.
 // Identity is implicit based on the relationship and the key that signed the message.
-// This message is to be included in an output of the payment tx.
+type PurchaseOrder struct {
+	Items InvoiceItems `bsor:"1" json:"items"`
+	Notes *string      `bsor:"2" json:"notes,omitempty"`
+}
+
+// Invoice is a message created by the vendor representing an approved set of items to buy. This is
+// meant to be embedded in the payment tx so what is being paid for is recorded with the payment. It
+// can be encrypted for privacy.
+// Identity is implicit based on the peer channel relationship and the key that signed the message.
+// The vendor can either add an input to the payment tx to sign it directly, or the buyer can retain
+// signatures from the off chain communication to prove the vendor approved the payment. The off
+// chain communication should include a signed InvoiceTx message that contains the payment tx which
+// contains the Invoice.
 type Invoice struct {
 	Items InvoiceItems `bsor:"1" json:"items"`
 	Notes *string      `bsor:"2" json:"notes,omitempty"`
@@ -59,64 +101,38 @@ type InvoiceTx struct {
 	Tx ExpandedTx `bsor:"1" json:"tx"`
 }
 
-// PurchaseOrder contains items the buyer wishes to purchase.
-// Identity is implicit based on the relationship and the key that signed the message.
-type PurchaseOrder struct {
-	Items InvoiceItems `bsor:"1" json:"items"`
-	Notes *string      `bsor:"2" json:"notes,omitempty"`
-}
-
 // InvoicePayment is a payment transaction that embeds the approved invoice.
 type InvoicePayment struct {
-	Tx ExpandedTx `bsor:"1" json:"tx"`
+	Tx   ExpandedTx             `bsor:"1" json:"tx"`
+	Fees merchant_api.FeeQuotes `bsor:"3" json:"fees"` // tx fee requirements
 }
 
-func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
-	for _, txout := range tx.TxOut {
-		protocolIDs, payload, err := envelopeV1.Parse(bytes.NewReader(txout.LockingScript))
-		if err != nil {
-			continue
-		}
-
-		if len(protocolIDs) != 1 || !bytes.Equal(ProtocolIDInvoices, protocolIDs[0]) {
-			continue
-		}
-
-		msg, err := ParseInvoice(protocolIDs, payload)
-		if err != nil {
-			continue
-		}
-
-		invoice, ok := msg.(*Invoice)
-		if !ok {
-			continue
-		}
-
-		return invoice, nil
-	}
-
-	return nil, ErrInvoiceMissing
+// ExpandedTx is a Bitcoin transaction with ancestor information.
+// All ancestor transactions back to merkle proofs should be provided.
+type ExpandedTx struct {
+	Tx        *wire.MsgTx `bsor:"1" json:"tx"`        // marshals as raw bytes
+	Outputs   Outputs     `bsor:"2" json:"outputs"`   // outputs spent by inputs of tx
+	Ancestors ParentTxs   `bsor:"3" json:"ancestors"` // ancestor history of outputs up to merkle proofs
 }
 
-type TxOut struct {
+// Output is a Bitcoin transaction output that is spent.
+type Output struct {
 	Value         uint64         `bsor:"1" json:"value"`
 	LockingScript bitcoin.Script `bsor:"2" json:"locking_script"`
 }
 
-type ExpandedTx struct {
-	Tx      *wire.MsgTx `bsor:"1" json:"tx"`      // marshals as raw bytes
-	Outputs []*TxOut    `bsor:"2" json:"outputs"` // outputs spent by inputs of tx
+type Outputs []*Output
+
+// ParentTx is a tx containing a spent output contained in an expanded tx or an ancestor. If it is
+// confirmed then the merkle proof should be provided, otherwise the outputs should be provided and
+// their ancestors included in the expanded tx.
+type ParentTx struct {
+	Tx          *wire.MsgTx               `bsor:"1" json:"tx"`                // marshals as raw bytes
+	Outputs     Outputs                   `bsor:"2" json:"outputs,omitempty"` // outputs spent by inputs of tx
+	MerkleProof *merkle_proof.MerkleProof `bsor:"3" json:"merkle_proof,omitempty"`
 }
 
-// RequestMenu is a request to receive the current menu.
-type RequestMenu struct {
-}
-
-// Menu represents a set of items available to include in an invoice.
-type Menu struct {
-	Items  Items     `bsor:"1" json:"items"`
-	Vendor *Identity `bsor:"2" json:"vendor,omitempty"`
-}
+type ParentTxs []*ParentTx
 
 // Item is something that can be included in an invoice. Commonly a product or service.
 type Item struct {
@@ -154,6 +170,100 @@ type InvoiceItem struct {
 }
 
 type InvoiceItems []*InvoiceItem
+
+func WriteInvoice(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
+	msgType := InvoicesMessageTypeFor(message)
+	if msgType == InvoicesMessageTypeInvalid {
+		return nil, nil, errors.Wrap(ErrUnsupportedInvoicesMessage,
+			reflect.TypeOf(message).Name())
+	}
+
+	var scriptItems bitcoin.ScriptItems
+
+	// Version
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(InvoicesVersion)))
+
+	// Message type
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(message)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "marshal")
+	}
+	scriptItems = append(scriptItems, msgScriptItems...)
+
+	return envelope.ProtocolIDs{ProtocolIDInvoices}, scriptItems, nil
+}
+
+func ParseInvoice(protocolIDs envelope.ProtocolIDs,
+	payload bitcoin.ScriptItems) (interface{}, error) {
+
+	if len(protocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
+	}
+
+	if !bytes.Equal(protocolIDs[0], ProtocolIDInvoices) {
+		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
+	}
+
+	if len(payload) == 0 {
+		return nil, errors.Wrapf(ErrNotInvoice, "payload empty")
+	}
+
+	version, err := bitcoin.ScriptNumberValue(payload[0])
+	if err != nil {
+		return nil, errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return nil, errors.Wrap(ErrUnsupportedInvoicesVersion, fmt.Sprintf("%d", version))
+	}
+
+	messageType, err := bitcoin.ScriptNumberValue(payload[1])
+	if err != nil {
+		return nil, errors.Wrap(err, "message type")
+	}
+
+	result := InvoicesMessageForType(InvoicesMessageType(messageType))
+	if result == nil {
+		return nil, errors.Wrap(ErrUnsupportedInvoicesMessage,
+			fmt.Sprintf("%d", InvoicesMessageType(messageType)))
+	}
+
+	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
+		return nil, errors.Wrap(err, "unmarshal")
+	}
+
+	return result, nil
+}
+
+// ExtractInvoice finds the Invoice message embedded in the tx.
+func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
+	for _, txout := range tx.TxOut {
+		protocolIDs, payload, err := envelopeV1.Parse(bytes.NewReader(txout.LockingScript))
+		if err != nil {
+			continue
+		}
+
+		if len(protocolIDs) != 1 || !bytes.Equal(ProtocolIDInvoices, protocolIDs[0]) {
+			continue
+		}
+
+		msg, err := ParseInvoice(protocolIDs, payload)
+		if err != nil {
+			continue
+		}
+
+		invoice, ok := msg.(*Invoice)
+		if !ok {
+			continue
+		}
+
+		return invoice, nil
+	}
+
+	return nil, ErrInvoiceMissing
+}
 
 func InvoicesMessageForType(messageType InvoicesMessageType) interface{} {
 	switch InvoicesMessageType(messageType) {
@@ -264,70 +374,4 @@ func (v InvoicesMessageType) String() string {
 	default:
 		return ""
 	}
-}
-
-func WriteInvoice(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
-	msgType := InvoicesMessageTypeFor(message)
-	if msgType == InvoicesMessageTypeInvalid {
-		return nil, nil, errors.Wrap(ErrUnsupportedInvoicesMessage,
-			reflect.TypeOf(message).Name())
-	}
-
-	var scriptItems bitcoin.ScriptItems
-
-	// Version
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(InvoicesVersion)))
-
-	// Message type
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
-
-	// Message
-	msgScriptItems, err := bsor.Marshal(message)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
-	}
-	scriptItems = append(scriptItems, msgScriptItems...)
-
-	return envelope.ProtocolIDs{ProtocolIDInvoices}, scriptItems, nil
-}
-
-func ParseInvoice(protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (interface{}, error) {
-
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
-	}
-
-	if !bytes.Equal(protocolIDs[0], ProtocolIDInvoices) {
-		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
-	}
-
-	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrNotInvoice, "payload empty")
-	}
-
-	version, err := bitcoin.ScriptNumberValue(payload[0])
-	if err != nil {
-		return nil, errors.Wrap(err, "version")
-	}
-	if version != 0 {
-		return nil, errors.Wrap(ErrUnsupportedInvoicesVersion, fmt.Sprintf("%d", version))
-	}
-
-	messageType, err := bitcoin.ScriptNumberValue(payload[1])
-	if err != nil {
-		return nil, errors.Wrap(err, "message type")
-	}
-
-	result := InvoicesMessageForType(InvoicesMessageType(messageType))
-	if result == nil {
-		return nil, errors.Wrap(ErrUnsupportedInvoicesMessage,
-			fmt.Sprintf("%d", InvoicesMessageType(messageType)))
-	}
-
-	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
-	}
-
-	return result, nil
 }

@@ -111,9 +111,15 @@ func Test_Invoices_Invoice(t *testing.T) {
 	unlockingScript := make(bitcoin.Script, 165)
 	rand.Read(unlockingScript)
 
-	outputs := make([]*TxOut, 2)
-	outputs[0] = &TxOut{200010, lockingScript}
-	outputs[1] = &TxOut{404000, lockingScript}
+	outputs := make(Outputs, 2)
+	outputs[0] = &Output{
+		Value:         200010,
+		LockingScript: lockingScript,
+	}
+	outputs[1] = &Output{
+		Value:         404000,
+		LockingScript: lockingScript,
+	}
 
 	tx := wire.NewMsgTx(1)
 	for range outputs {

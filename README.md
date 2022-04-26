@@ -10,7 +10,7 @@ This deprecates much of paymail as users can directly exchange channels via any 
 
 Peer channels (previously SPV channels) can be very scalable and can be directly paid for via this protocol using micro-transactions. At their base they are simply a method for delivering messages of any kind and allowing the owner of the channel to receive them without having to always be online. They are like email stripped down to the very base component. Peer channels are simply a message delivery system for these protocols. They are not meant to retain messages after being read. The application should handle that with a data storage service or something else. Not all messages must be saved, but signed data relating to  establishing identity, invoices, and other data relevant to the supported protocols should be retained indefinitely.
 
-The current implementation allows listening to a channel on a websocket, but I think an important feature can be listening to an entire account on one websocket so if anyone posts to any of your channels you can see it instantly.
+An important feature is listening to an entire account on one websocket so if anyone posts to any of your channels you can see it instantly.
 
 ## Encoding
 
@@ -58,7 +58,7 @@ A user can connect to a peer channel service and negotiate payment for the servi
 
 #### Peer Channel Posting
 
-There can even be services that post to peer channels for you. Like if the channel goes offline for lower quality peer channel services it can continue to retry. This would be important for IPv6 where users would be offline sometimes.
+There can even be services that post to peer channels for you. Like if the channel goes offline for lower quality peer channel services it can continue to retry. This would be important for IPv6 where users would be offline sometimes and a service could periodically attempt to post the message until it comes back online and succeeds.
 
 #### Data Storage
 

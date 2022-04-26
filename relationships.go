@@ -40,15 +40,25 @@ type RelationshipRejectReason uint8
 type RelationshipInitiation struct {
 	Identity Identity `bsor:"1" json:"identity"`
 
-	// PeerChannel for relationship that accept message should be sent to.
-	PeerChannel *PeerChannel `bsor:"2" json:"peer_channel,omitempty"`
+	// PeerChannel for relationship that the relationship accept message should be sent to.
+	PeerChannels PeerChannels `bsor:"2" json:"peer_channel,omitempty"`
+
+	// SupportedProtocols specifies the Envelope protocol IDs that can be interpreted by this
+	// channel. If an unsuported protocol ID is used then this channel will respond with an
+	// `UnsupportedProtocol` message.
+	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
 }
 
 type RelationshipAccept struct {
 	Identity Identity `bsor:"1" json:"identity"`
 
 	// PeerChannel to use if different from the channel initiation message was received on.
-	PeerChannel *PeerChannel `bsor:"2" json:"peer_channel,omitempty"`
+	PeerChannels PeerChannels `bsor:"2" json:"peer_channel,omitempty"`
+
+	// SupportedProtocols specifies the Envelope protocol IDs that can be interpreted by this
+	// channel. If an unsuported protocol ID is used then this channel will respond with an
+	// `UnsupportedProtocol` message.
+	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
 }
 
 type RelationshipReject struct {
@@ -57,8 +67,8 @@ type RelationshipReject struct {
 }
 
 type Identity struct {
-	ID        bitcoin.Hex       `bsor:"1" json:"id,omitempty"`
-	PublicKey bitcoin.PublicKey `bsor:"2" json:"public_key,omitempty"`
+	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key,omitempty"`
+	ID        bitcoin.Hex       `bsor:"2" json:"id,omitempty"`
 	Name      *string           `bsor:"3" json:"name,omitempty"`
 	Email     *string           `bsor:"4" json:"email,omitempty"`
 	Handle    *string           `bsor:"5" json:"handle,omitempty"`
@@ -78,6 +88,8 @@ type PeerChannel struct {
 	URL        string `bsor:"1" json:"url"`
 	WriteToken string `bsor:"2" json:"write_token"`
 }
+
+type PeerChannels []PeerChannel
 
 func RelationshipsMessageForType(messageType RelationshipsMessageType) interface{} {
 	switch messageType {

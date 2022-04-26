@@ -33,6 +33,72 @@ type UnsupportedProtocol struct {
 	ProtocolID envelope.ProtocolID `bsor:"1" json:"protocol_id"`
 }
 
+func WriteChannels(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
+	msgType := ChannelsMessageTypeFor(message)
+	if msgType == ChannelsMessageTypeInvalid {
+		return nil, nil, errors.Wrap(ErrUnsupportedChannelsMessage,
+			reflect.TypeOf(message).Name())
+	}
+
+	var scriptItems bitcoin.ScriptItems
+
+	// Version
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(ChannelsVersion)))
+
+	// Message type
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(message)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "marshal")
+	}
+	scriptItems = append(scriptItems, msgScriptItems...)
+
+	return envelope.ProtocolIDs{ProtocolIDChannels}, scriptItems, nil
+}
+
+func ParseChannels(protocolIDs envelope.ProtocolIDs,
+	payload bitcoin.ScriptItems) (interface{}, error) {
+
+	if len(protocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
+	}
+
+	if !bytes.Equal(protocolIDs[0], ProtocolIDChannels) {
+		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
+	}
+
+	if len(payload) == 0 {
+		return nil, errors.Wrapf(ErrNotChannels, "payload empty")
+	}
+
+	version, err := bitcoin.ScriptNumberValue(payload[0])
+	if err != nil {
+		return nil, errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return nil, errors.Wrap(ErrUnsupportedChannelsVersion, fmt.Sprintf("%d", version))
+	}
+
+	messageType, err := bitcoin.ScriptNumberValue(payload[1])
+	if err != nil {
+		return nil, errors.Wrap(err, "message type")
+	}
+
+	result := ChannelsMessageForType(ChannelsMessageType(messageType))
+	if result == nil {
+		return nil, errors.Wrap(ErrUnsupportedChannelsMessage,
+			fmt.Sprintf("%d", ChannelsMessageType(messageType)))
+	}
+
+	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
+		return nil, errors.Wrap(err, "unmarshal")
+	}
+
+	return result, nil
+}
+
 func ChannelsMessageForType(messageType ChannelsMessageType) interface{} {
 	switch messageType {
 	case ChannelsMessageTypeUnsupportedProtocol:
@@ -102,70 +168,4 @@ func (v ChannelsMessageType) String() string {
 	default:
 		return ""
 	}
-}
-
-func WriteChannels(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
-	msgType := ChannelsMessageTypeFor(message)
-	if msgType == ChannelsMessageTypeInvalid {
-		return nil, nil, errors.Wrap(ErrUnsupportedChannelsMessage,
-			reflect.TypeOf(message).Name())
-	}
-
-	var scriptItems bitcoin.ScriptItems
-
-	// Version
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(ChannelsVersion)))
-
-	// Message type
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
-
-	// Message
-	msgScriptItems, err := bsor.Marshal(message)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
-	}
-	scriptItems = append(scriptItems, msgScriptItems...)
-
-	return envelope.ProtocolIDs{ProtocolIDChannels}, scriptItems, nil
-}
-
-func ParseChannels(protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (interface{}, error) {
-
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
-	}
-
-	if !bytes.Equal(protocolIDs[0], ProtocolIDChannels) {
-		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
-	}
-
-	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrNotChannels, "payload empty")
-	}
-
-	version, err := bitcoin.ScriptNumberValue(payload[0])
-	if err != nil {
-		return nil, errors.Wrap(err, "version")
-	}
-	if version != 0 {
-		return nil, errors.Wrap(ErrUnsupportedChannelsVersion, fmt.Sprintf("%d", version))
-	}
-
-	messageType, err := bitcoin.ScriptNumberValue(payload[1])
-	if err != nil {
-		return nil, errors.Wrap(err, "message type")
-	}
-
-	result := ChannelsMessageForType(ChannelsMessageType(messageType))
-	if result == nil {
-		return nil, errors.Wrap(ErrUnsupportedChannelsMessage,
-			fmt.Sprintf("%d", ChannelsMessageType(messageType)))
-	}
-
-	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
-	}
-
-	return result, nil
 }
