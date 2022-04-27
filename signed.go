@@ -27,14 +27,16 @@ var (
 // First push op is public key, or OP_FALSE if no key is provided.
 // Second push op is signature of remaining protocol ids and push ops.
 type Signature struct {
-	Signature bitcoin.Signature  `bsor:"1" json:"signature"`
-	PublicKey *bitcoin.PublicKey `bsor:"2" json:"public_key"`
-	hash      *bitcoin.Hash32
+	Signature      bitcoin.Signature  `bsor:"1" json:"signature"`
+	PublicKey      *bitcoin.PublicKey `bsor:"2" json:"public_key"`
+	DerivationHash *bitcoin.Hash32    `bsor:"3" json:"derivation_hash"`
+	hash           *bitcoin.Hash32
 }
 
 // Sign adds the SignedMessage protocol to the provided bitcoin script with the signature of the
 // script and the key is specified.
 func Sign(protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems, key bitcoin.Key,
+	derivationHash *bitcoin.Hash32,
 	includeKey bool) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
 
 	hasher := sha256.New()
@@ -51,16 +53,30 @@ func Sign(protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems, key bit
 		return nil, nil, errors.Wrap(err, "new hash")
 	}
 
-	signature, err := key.Sign(*hash)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "sign")
+	var signature bitcoin.Signature
+	if derivationHash != nil {
+		derivedKey, err := bitcoin.NextKey(key, *derivationHash)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "derive key")
+		}
+
+		signature, err = derivedKey.Sign(*hash)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "sign")
+		}
+	} else {
+		signature, err = key.Sign(*hash)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "sign")
+		}
 	}
 
 	// Version
 	result := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(SignedMessagesVersion))}
 
 	message := &Signature{
-		Signature: signature,
+		Signature:      signature,
+		DerivationHash: derivationHash,
 	}
 
 	if includeKey {
@@ -131,8 +147,27 @@ func ParseSigned(protocolIDs envelope.ProtocolIDs,
 	return signature, protocolIDs, payload, nil
 }
 
-// SetPublicKey sets the public key on the message. To be used when the public key isn't provided in
-// the message.
+// GetPublicKey calculates the public key if there is a derivation hash or just returns the included
+// public key.
+func (m Signature) GetPublicKey() (*bitcoin.PublicKey, error) {
+	if m.PublicKey == nil {
+		return nil, ErrPublicKeyMissing
+	}
+
+	if m.DerivationHash == nil {
+		return m.PublicKey, nil
+	}
+
+	publicKey, err := bitcoin.NextPublicKey(*m.PublicKey, *m.DerivationHash)
+	if err != nil {
+		return nil, errors.Wrap(err, "derive key")
+	}
+
+	return &publicKey, nil
+}
+
+// SetPublicKey sets the base public key on the message. To be used when the public key isn't
+// provided in the message but is known from context.
 func (m *Signature) SetPublicKey(publicKey *bitcoin.PublicKey) {
 	m.PublicKey = publicKey
 }
@@ -145,7 +180,20 @@ func (m Signature) Verify() error {
 		return ErrHashMissing
 	}
 
-	if !m.Signature.Verify(*m.hash, *m.PublicKey) {
+	if m.DerivationHash == nil {
+		if !m.Signature.Verify(*m.hash, *m.PublicKey) {
+			return ErrInvalidSignature
+		}
+
+		return nil
+	}
+
+	publicKey, err := bitcoin.NextPublicKey(*m.PublicKey, *m.DerivationHash)
+	if err != nil {
+		return errors.Wrap(err, "derive key")
+	}
+
+	if !m.Signature.Verify(*m.hash, publicKey) {
 		return ErrInvalidSignature
 	}
 
