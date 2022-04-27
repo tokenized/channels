@@ -65,7 +65,7 @@ func Test_Invoices_Menu(t *testing.T) {
 		t.Fatalf("Failed to write invoice : %s", err)
 	}
 
-	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, true)
+	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, nil, true)
 
 	envelopeScriptItems := envelopeV1.Wrap(signedProtocolIDs, signedScriptItems)
 
@@ -178,7 +178,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 		t.Fatalf("Failed to write invoice : %s", err)
 	}
 
-	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, true)
+	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, nil, true)
 
 	envelopeScriptItems := envelopeV1.Wrap(signedProtocolIDs, signedScriptItems)
 

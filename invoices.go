@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"time"
 
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
@@ -91,8 +92,20 @@ type PurchaseOrder struct {
 // chain communication should include a signed InvoiceTx message that contains the payment tx which
 // contains the Invoice.
 type Invoice struct {
-	Items InvoiceItems `bsor:"1" json:"items"`
-	Notes *string      `bsor:"2" json:"notes,omitempty"`
+	Items      InvoiceItems `bsor:"1" json:"items"`
+	Notes      *string      `bsor:"2" json:"notes,omitempty"`
+	Timestamp  Timestamp    `bsor:"3" json:"timestamp"`
+	Expiration Timestamp    `bsor:"4" json:"expiration"`
+}
+
+type Timestamp uint64 // Seconds since UNIX epoch
+
+func Now() Timestamp {
+	return Timestamp(time.Now().Unix())
+}
+
+func ConvertToTimestamp(t time.Time) Timestamp {
+	return Timestamp(t.Unix())
 }
 
 // InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
@@ -112,7 +125,7 @@ type InvoicePayment struct {
 type ExpandedTx struct {
 	Tx        *wire.MsgTx `bsor:"1" json:"tx"`        // marshals as raw bytes
 	Outputs   Outputs     `bsor:"2" json:"outputs"`   // outputs spent by inputs of tx
-	Ancestors ParentTxs   `bsor:"3" json:"ancestors"` // ancestor history of outputs up to merkle proofs
+	Ancestors AncestorTxs `bsor:"3" json:"ancestors"` // ancestor history of outputs up to merkle proofs
 }
 
 // Output is a Bitcoin transaction output that is spent.
@@ -123,16 +136,17 @@ type Output struct {
 
 type Outputs []*Output
 
-// ParentTx is a tx containing a spent output contained in an expanded tx or an ancestor. If it is
-// confirmed then the merkle proof should be provided, otherwise the outputs should be provided and
-// their ancestors included in the expanded tx.
-type ParentTx struct {
-	Tx          *wire.MsgTx               `bsor:"1" json:"tx"`                // marshals as raw bytes
-	Outputs     Outputs                   `bsor:"2" json:"outputs,omitempty"` // outputs spent by inputs of tx
-	MerkleProof *merkle_proof.MerkleProof `bsor:"3" json:"merkle_proof,omitempty"`
+// AncestorTx is a tx containing a spent output contained in an expanded tx or an ancestor. If it is
+// confirmed then the merkle proof should be provided, otherwise the outputs and miner responses
+// should be provided and their ancestors included in the expanded tx.
+type AncestorTx struct {
+	Tx             *wire.MsgTx               `bsor:"1" json:"tx"`                        // marshals as raw bytes
+	MinerResponses []string                  `bsor:"2" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
+	Outputs        Outputs                   `bsor:"3" json:"outputs,omitempty"`         // outputs spent by inputs of tx
+	MerkleProof    *merkle_proof.MerkleProof `bsor:"4" json:"merkle_proof,omitempty"`
 }
 
-type ParentTxs []*ParentTx
+type AncestorTxs []*AncestorTx
 
 // Item is something that can be included in an invoice. Commonly a product or service.
 type Item struct {
