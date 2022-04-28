@@ -33,6 +33,20 @@ type UnsupportedProtocol struct {
 	ProtocolID envelope.ProtocolID `bsor:"1" json:"protocol_id"`
 }
 
+type Channel struct {
+	Relationship Relationship
+	PeerChannels PeerChannels
+}
+
+type Channels []*Channel
+
+type PeerChannel struct {
+	URL        string `bsor:"1" json:"url"`
+	WriteToken string `bsor:"2" json:"write_token"`
+}
+
+type PeerChannels []PeerChannel
+
 func WriteChannels(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
 	msgType := ChannelsMessageTypeFor(message)
 	if msgType == ChannelsMessageTypeInvalid {

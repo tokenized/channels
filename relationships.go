@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ProtocolIDRelationships = envelope.ProtocolID("R") // Protocol ID for relationship messages
+	ProtocolIDRelationships = envelope.ProtocolID("RS") // Protocol ID for relationship messages
 	RelationshipsVersion    = uint8(0)
 
 	RelationshipsMessageTypeInvalid    = RelationshipsMessageType(0)
@@ -37,7 +37,7 @@ var (
 type RelationshipsMessageType uint8
 type RelationshipRejectReason uint8
 
-type RelationshipInitiation struct {
+type Relationship struct {
 	Identity Identity `bsor:"1" json:"identity"`
 
 	// PeerChannel for relationship that the relationship accept message should be sent to.
@@ -49,17 +49,8 @@ type RelationshipInitiation struct {
 	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
 }
 
-type RelationshipAccept struct {
-	Identity Identity `bsor:"1" json:"identity"`
-
-	// PeerChannel to use if different from the channel initiation message was received on.
-	PeerChannels PeerChannels `bsor:"2" json:"peer_channel,omitempty"`
-
-	// SupportedProtocols specifies the Envelope protocol IDs that can be interpreted by this
-	// channel. If an unsuported protocol ID is used then this channel will respond with an
-	// `UnsupportedProtocol` message.
-	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
-}
+type RelationshipInitiation Relationship
+type RelationshipAccept Relationship
 
 type RelationshipReject struct {
 	Reason RelationshipRejectReason `bsor:"1" json:"reason"`
@@ -84,12 +75,71 @@ type Location struct {
 	PostalCode *string  `bsor:"5" json:"postal_code,omitempty"`
 }
 
-type PeerChannel struct {
-	URL        string `bsor:"1" json:"url"`
-	WriteToken string `bsor:"2" json:"write_token"`
+func WriteRelationships(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
+	msgType := RelationshipsMessageTypeFor(message)
+	if msgType == RelationshipsMessageTypeInvalid {
+		return nil, nil, errors.Wrap(ErrUnsupportedRelationshipsMessage,
+			reflect.TypeOf(message).Name())
+	}
+
+	var scriptItems bitcoin.ScriptItems
+
+	// Version
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(RelationshipsVersion)))
+
+	// Message type
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(message)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "marshal")
+	}
+	scriptItems = append(scriptItems, msgScriptItems...)
+
+	return envelope.ProtocolIDs{ProtocolIDRelationships}, scriptItems, nil
 }
 
-type PeerChannels []PeerChannel
+func ParseRelationships(protocolIDs envelope.ProtocolIDs,
+	payload bitcoin.ScriptItems) (interface{}, error) {
+
+	if len(protocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
+	}
+
+	if !bytes.Equal(protocolIDs[0], ProtocolIDRelationships) {
+		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
+	}
+
+	if len(payload) == 0 {
+		return nil, errors.Wrapf(ErrNotRelationships, "payload empty")
+	}
+
+	version, err := bitcoin.ScriptNumberValue(payload[0])
+	if err != nil {
+		return nil, errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return nil, errors.Wrap(ErrUnsupportedRelationshipsVersion, fmt.Sprintf("%d", version))
+	}
+
+	messageType, err := bitcoin.ScriptNumberValue(payload[1])
+	if err != nil {
+		return nil, errors.Wrap(err, "message type")
+	}
+
+	result := RelationshipsMessageForType(RelationshipsMessageType(messageType))
+	if result == nil {
+		return nil, errors.Wrap(ErrUnsupportedRelationshipsMessage,
+			fmt.Sprintf("%d", RelationshipsMessageType(messageType)))
+	}
+
+	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
+		return nil, errors.Wrap(err, "unmarshal")
+	}
+
+	return result, nil
+}
 
 func RelationshipsMessageForType(messageType RelationshipsMessageType) interface{} {
 	switch messageType {
@@ -223,70 +273,4 @@ func (v RelationshipRejectReason) String() string {
 	default:
 		return ""
 	}
-}
-
-func WriteRelationships(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
-	msgType := RelationshipsMessageTypeFor(message)
-	if msgType == RelationshipsMessageTypeInvalid {
-		return nil, nil, errors.Wrap(ErrUnsupportedRelationshipsMessage,
-			reflect.TypeOf(message).Name())
-	}
-
-	var scriptItems bitcoin.ScriptItems
-
-	// Version
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(RelationshipsVersion)))
-
-	// Message type
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
-
-	// Message
-	msgScriptItems, err := bsor.Marshal(message)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
-	}
-	scriptItems = append(scriptItems, msgScriptItems...)
-
-	return envelope.ProtocolIDs{ProtocolIDRelationships}, scriptItems, nil
-}
-
-func ParseRelationships(protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (interface{}, error) {
-
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
-	}
-
-	if !bytes.Equal(protocolIDs[0], ProtocolIDRelationships) {
-		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
-	}
-
-	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrNotRelationships, "payload empty")
-	}
-
-	version, err := bitcoin.ScriptNumberValue(payload[0])
-	if err != nil {
-		return nil, errors.Wrap(err, "version")
-	}
-	if version != 0 {
-		return nil, errors.Wrap(ErrUnsupportedRelationshipsVersion, fmt.Sprintf("%d", version))
-	}
-
-	messageType, err := bitcoin.ScriptNumberValue(payload[1])
-	if err != nil {
-		return nil, errors.Wrap(err, "message type")
-	}
-
-	result := RelationshipsMessageForType(RelationshipsMessageType(messageType))
-	if result == nil {
-		return nil, errors.Wrap(ErrUnsupportedRelationshipsMessage,
-			fmt.Sprintf("%d", RelationshipsMessageType(messageType)))
-	}
-
-	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
-	}
-
-	return result, nil
 }
