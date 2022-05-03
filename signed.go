@@ -55,7 +55,7 @@ func Sign(protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems, key bit
 
 	var signature bitcoin.Signature
 	if derivationHash != nil {
-		derivedKey, err := bitcoin.NextKey(key, *derivationHash)
+		derivedKey, err := key.AddHash(*derivationHash)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "derive key")
 		}
@@ -158,7 +158,7 @@ func (m Signature) GetPublicKey() (*bitcoin.PublicKey, error) {
 		return m.PublicKey, nil
 	}
 
-	publicKey, err := bitcoin.NextPublicKey(*m.PublicKey, *m.DerivationHash)
+	publicKey, err := m.PublicKey.AddHash(*m.DerivationHash)
 	if err != nil {
 		return nil, errors.Wrap(err, "derive key")
 	}
@@ -188,7 +188,7 @@ func (m Signature) Verify() error {
 		return nil
 	}
 
-	publicKey, err := bitcoin.NextPublicKey(*m.PublicKey, *m.DerivationHash)
+	publicKey, err := m.PublicKey.AddHash(*m.DerivationHash)
 	if err != nil {
 		return errors.Wrap(err, "derive key")
 	}

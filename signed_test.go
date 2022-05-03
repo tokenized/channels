@@ -189,7 +189,7 @@ func Test_SignedMessage_WithHash(t *testing.T) {
 	rand.Read(derivationHash[:])
 	t.Logf("Derivation hash : %s", derivationHash)
 
-	derivedPublicKey, err := bitcoin.NextPublicKey(basePublicKey, derivationHash)
+	derivedPublicKey, err := basePublicKey.AddHash(derivationHash)
 	if err != nil {
 		t.Fatalf("Failed to derive public key : %s", err)
 	}

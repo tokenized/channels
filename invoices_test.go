@@ -101,6 +101,10 @@ func Test_Invoices_Menu(t *testing.T) {
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("Invoice message : %s", js)
 
+	if _, ok := readMsg.(*Menu); !ok {
+		t.Errorf("Wrong message type")
+	}
+
 	if !reflect.DeepEqual(msg, readMsg) {
 		t.Errorf("Unmarshalled value not equal : %v", deep.Equal(readMsg, msg))
 	}
@@ -213,6 +217,10 @@ func Test_Invoices_Invoice(t *testing.T) {
 
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("Invoice message : %s", js)
+
+	if _, ok := readMsg.(*InvoiceTx); !ok {
+		t.Errorf("Wrong message type")
+	}
 
 	if !reflect.DeepEqual(msg, readMsg) {
 		t.Errorf("Unmarshalled value not equal : %v", deep.Equal(readMsg, msg))
