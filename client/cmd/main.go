@@ -33,7 +33,12 @@ func main() {
 	listenComplete := make(chan interface{})
 	incoming := make(chan peer_channels.Message, 5)
 
-	client := peer_channels.NewClient(url)
+	factory := peer_channels.NewFactory()
+	client, err := factory.NewClient(url)
+	if err != nil {
+		logger.Fatal(ctx, "Failed to create peer channel client : %s", err)
+	}
+
 	go func() {
 		if err := client.AccountListen(ctx, accountID, token, incoming,
 			listenInterrupt); err != nil {

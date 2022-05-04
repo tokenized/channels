@@ -9,6 +9,7 @@ import (
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
 
 	"github.com/pkg/errors"
@@ -21,13 +22,15 @@ var (
 type Channel struct {
 	// IsInitiation means this channel is for new entities to send relationship initiation messages
 	// to that will be directed to new channels if they are accepted.
-	IsInitiation bool
+	isInitiation bool
 
 	// Hash used to derive channel's base key
-	Hash bitcoin.Hash32
+	hash bitcoin.Hash32
 
 	Incoming *ChannelCommunication
 	Outgoing *ChannelCommunication
+
+	lock sync.Mutex
 }
 
 type ChannelCommunication struct {
@@ -54,15 +57,17 @@ func NewPrivateChannel(hash bitcoin.Hash32, publicKey bitcoin.PublicKey,
 	incomingPeerChannels channels.PeerChannels, identity channels.Identity) *Channel {
 
 	return &Channel{
-		Hash:     hash,
+		hash:     hash,
 		Incoming: NewChannelCommunication(publicKey, incomingPeerChannels, identity),
+		Outgoing: NewEmptyChannelCommunication(),
 	}
 }
 
 func NewInitiationChannel(incomingPeerChannels channels.PeerChannels) *Channel {
 	return &Channel{
-		IsInitiation: true,
+		isInitiation: true,
 		Incoming:     NewInitiationChannelCommunication(incomingPeerChannels),
+		Outgoing:     NewEmptyChannelCommunication(),
 	}
 }
 
@@ -85,6 +90,13 @@ func NewInitiationChannelCommunication(peerChannels channels.PeerChannels) *Chan
 		Entity: &channels.Entity{
 			PeerChannels: peerChannels,
 		},
+		MessageMap: make(map[bitcoin.Hash32]int),
+	}
+}
+
+func NewEmptyChannelCommunication() *ChannelCommunication {
+	return &ChannelCommunication{
+		Entity:     nil,
 		MessageMap: make(map[bitcoin.Hash32]int),
 	}
 }
@@ -125,8 +137,25 @@ func (c *ChannelCommunication) SetEntity(entity *channels.Entity) error {
 	return nil
 }
 
+func (c *ChannelCommunication) GetUnprocessedMessages(ctx context.Context) (Messages, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	var result Messages
+	for _, message := range c.Messages {
+		if message.IsProcessed {
+			continue
+		}
+
+		msg := *message
+		result = append(result, &msg)
+	}
+
+	return result, nil
+}
+
 func (c *ChannelCommunication) AddMessage(ctx context.Context, hash bitcoin.Hash32,
-	protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems) {
+	protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -139,12 +168,77 @@ func (c *ChannelCommunication) AddMessage(ctx context.Context, hash bitcoin.Hash
 
 	c.Messages = append(c.Messages, message)
 	c.MessageMap[hash] = len(c.Messages)
+
+	logger.Info(ctx, "Added message")
+	return nil
+}
+
+func SendMessage(ctx context.Context, factory *peer_channels.Factory,
+	peerChannels channels.PeerChannels, protocolIDs envelope.ProtocolIDs,
+	payload bitcoin.ScriptItems) (*bitcoin.Hash32, error) {
+
+	scriptItems := envelopeV1.Wrap(protocolIDs, payload)
+	script, err := scriptItems.Script()
+	if err != nil {
+		return nil, errors.Wrap(err, "script")
+	}
+
+	hash := bitcoin.Hash32(sha256.Sum256(script))
+
+	success := false
+	var lastErr error
+	for _, peerChannel := range peerChannels {
+		peerClient, err := factory.NewClient(peerChannel.BaseURL)
+		if err != nil {
+			return nil, errors.Wrap(err, "peer client")
+		}
+
+		if _, err := peerClient.PostBinaryMessage(ctx, peerChannel.ID, peerChannel.WriteToken,
+			script); err != nil {
+			logger.WarnWithFields(ctx, []logger.Field{
+				logger.String("base_url", peerChannel.BaseURL),
+				logger.String("channel", peerChannel.ID),
+			}, "Failed to post peer channel message : %s", err)
+			lastErr = err
+		} else {
+			success = true
+		}
+	}
+
+	if !success {
+		return nil, lastErr
+	}
+
+	return &hash, nil
+}
+
+func (c *Channel) IsInitiation() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return c.isInitiation
+}
+
+func (c *Channel) Hash() bitcoin.Hash32 {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return c.hash
 }
 
 func (c *Channel) Reject(ctx context.Context, message peer_channels.Message,
 	reject *channels.Reject) error {
 
 	reject.MessageHash = message.Hash()
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.String("channel", message.ChannelID),
+		logger.String("content_type", message.ContentType),
+		logger.Uint32("sequence", message.Sequence),
+		logger.Stringer("received", message.Received),
+		logger.JSON("reject", reject),
+		logger.String("reject_code", reject.CodeToString()),
+	}, "Adding reject")
 
 	protocolIDs, payload, err := channels.WriteChannels(reject, nil, nil)
 	if err != nil {
@@ -156,8 +250,7 @@ func (c *Channel) Reject(ctx context.Context, message peer_channels.Message,
 	scriptItems.Write(hasher)
 	hash, _ := bitcoin.NewHash32(hasher.Sum(nil))
 
-	c.Outgoing.AddMessage(ctx, *hash, protocolIDs, payload)
-	return nil
+	return c.Outgoing.AddMessage(ctx, *hash, protocolIDs, payload)
 }
 
 func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Message,
@@ -194,7 +287,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Mess
 		return errors.New("Not Enough Protocol IDs")
 	}
 
-	publicKey := c.Incoming.GetPublicKey()
+	publicKey := c.Outgoing.GetPublicKey()
 
 	var entity *channels.Entity
 	msg, err := channels.ParseRelationship(protocolIDs, payload)
@@ -203,15 +296,15 @@ func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Mess
 	}
 	if msg != nil {
 		switch message := msg.(type) {
-		case channels.RelationshipInitiation:
-			relationship := channels.Entity(message)
+		case *channels.RelationshipInitiation:
+			relationship := channels.Entity(*message)
 			entity = &relationship
 		default:
 			return channels.ErrUnsupportedRelationshipsMessage
 		}
 
 		if publicKey == nil && entity != nil {
-			// Use newly established relationship
+			// Use newly established relationship key
 			publicKey = &entity.PublicKey
 		}
 	}
@@ -250,7 +343,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Mess
 		return nil
 	}
 
-	if entity != nil {
+	if !c.IsInitiation() && entity != nil {
 		if err := c.Incoming.SetEntity(entity); err != nil {
 			// TODO Allow entity updates --ce
 			if errors.Cause(err) == ErrAlreadyHaveEntity {
@@ -267,7 +360,5 @@ func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Mess
 		}
 	}
 
-	c.Incoming.AddMessage(ctx, message.Hash(), fullProtocolIDs, fullPayload)
-
-	return nil
+	return c.Incoming.AddMessage(ctx, message.Hash(), fullProtocolIDs, fullPayload)
 }

@@ -26,37 +26,24 @@ func (w *Wallet) GenerateKey(s string) (*Key, error) {
 	baseKey := w.baseKey
 	w.lock.RUnlock()
 
-	for {
-		hash, err := GenerateHash(s)
-		if err != nil {
-			return nil, errors.Wrap(err, "hash")
-		}
+	hash, key := GenerateHashKey(baseKey, s)
 
-		key, err := baseKey.AddHash(*hash)
-		if err != nil {
-			if errors.Cause(err) == bitcoin.ErrOutOfRangeKey {
-				continue
-			}
-			return nil, errors.Wrap(err, "key")
-		}
-
-		lockingScript, err := key.LockingScript()
-		if err != nil {
-			return nil, errors.Wrap(err, "locking script")
-		}
-
-		walletKey := &Key{
-			Hash:          *hash,
-			LockingScript: lockingScript,
-			Key:           key,
-		}
-
-		w.lock.Lock()
-		w.KeySet = append(w.KeySet, Keys{walletKey})
-		w.lock.Unlock()
-
-		return walletKey, nil
+	lockingScript, err := key.LockingScript()
+	if err != nil {
+		return nil, errors.Wrap(err, "locking script")
 	}
+
+	walletKey := &Key{
+		Hash:          hash,
+		LockingScript: lockingScript,
+		Key:           key,
+	}
+
+	w.lock.Lock()
+	w.KeySet = append(w.KeySet, Keys{walletKey})
+	w.lock.Unlock()
+
+	return walletKey, nil
 }
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.
@@ -65,21 +52,15 @@ func (w *Wallet) GenerateKeys(s string, count int) (Keys, error) {
 	baseKey := w.baseKey
 	w.lock.RUnlock()
 
-	hash, err := GenerateHash(s)
-	if err != nil {
-		return nil, errors.Wrap(err, "hash")
-	}
+	hash := GenerateHash(s)
 
 	result := make(Keys, count)
 	for i := range result {
 		for {
-			key, err := baseKey.AddHash(*hash)
+			key, err := baseKey.AddHash(hash)
 			if err != nil {
 				if errors.Cause(err) == bitcoin.ErrOutOfRangeKey {
-					hash, err = IncrementHash(*hash)
-					if err != nil {
-						return nil, errors.Wrap(err, "increment")
-					}
+					hash = IncrementHash(hash)
 					continue
 				}
 				return nil, errors.Wrap(err, "key")
@@ -94,13 +75,10 @@ func (w *Wallet) GenerateKeys(s string, count int) (Keys, error) {
 				LockingScript: lockingScript,
 				Key:           key,
 			}
-			copy(walletKey.Hash[:], (*hash)[:])
+			copy(walletKey.Hash[:], (hash)[:])
 			result[i] = walletKey
 
-			hash, err = IncrementHash(*hash)
-			if err != nil {
-				return nil, errors.Wrap(err, "increment")
-			}
+			hash = IncrementHash(hash)
 			break
 		}
 	}
@@ -112,7 +90,19 @@ func (w *Wallet) GenerateKeys(s string, count int) (Keys, error) {
 	return result, nil
 }
 
-func IncrementHash(hash bitcoin.Hash32) (*bitcoin.Hash32, error) {
+func GenerateHashKey(baseKey bitcoin.Key, s string) (bitcoin.Hash32, bitcoin.Key) {
+	for {
+		hash := GenerateHash(s)
+		key, err := baseKey.AddHash(hash)
+		if err != nil {
+			continue // should only be out of range key
+		}
+
+		return hash, key
+	}
+}
+
+func IncrementHash(hash bitcoin.Hash32) bitcoin.Hash32 {
 	hasher := sha256.New()
 	hasher.Write(hash[:])
 
@@ -121,16 +111,12 @@ func IncrementHash(hash bitcoin.Hash32) (*bitcoin.Hash32, error) {
 	hasher.Write(randomBytes)
 
 	newHash := sha256.Sum256(hasher.Sum(nil))
-	result, err := bitcoin.NewHash32(newHash[:])
-	if err != nil {
-		return nil, errors.Wrap(err, "hash32")
-	}
-
-	return result, nil
+	result, _ := bitcoin.NewHash32(newHash[:])
+	return *result
 }
 
 // GenerateHash creates a random hash value that is used to derive a new key.
-func GenerateHash(s string) (*bitcoin.Hash32, error) {
+func GenerateHash(s string) bitcoin.Hash32 {
 	hasher := sha256.New()
 	hasher.Write([]byte(s))
 
@@ -138,17 +124,10 @@ func GenerateHash(s string) (*bitcoin.Hash32, error) {
 	rand.Read(randomBytes)
 	hasher.Write(randomBytes)
 
-	timeBytes, err := time.Now().MarshalBinary()
-	if err != nil {
-		return nil, errors.Wrap(err, "time")
-	}
+	timeBytes, _ := time.Now().MarshalBinary()
 	hasher.Write(timeBytes)
 
 	hash := sha256.Sum256(hasher.Sum(nil))
-	result, err := bitcoin.NewHash32(hash[:])
-	if err != nil {
-		return nil, errors.Wrap(err, "hash32")
-	}
-
-	return result, nil
+	result, _ := bitcoin.NewHash32(hash[:])
+	return *result
 }

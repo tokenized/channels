@@ -72,6 +72,22 @@ type Reject struct {
 	Note        string              `bsor:"5" json:"note"`
 }
 
+func (r Reject) CodeToString() string {
+	if bytes.Equal(r.ProtocolID, ProtocolIDSignedMessages) {
+		return "signed:" + SigneRejectCodeToString(r.Code)
+	}
+
+	if bytes.Equal(r.ProtocolID, ProtocolIDRelationships) {
+		return "relationships:" + RelationshipsRejectCodeToString(r.Code)
+	}
+
+	if r.Code == 0 {
+		return string(r.ProtocolID) + ":parse"
+	}
+
+	return string(r.ProtocolID) + ":unknown"
+}
+
 type MerkleProof struct {
 	MerkleProof merkle_proof.MerkleProof `bsor:"2" json:"merkle_proof"`
 }

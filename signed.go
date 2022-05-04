@@ -208,3 +208,16 @@ func (m Signature) Verify() error {
 
 	return nil
 }
+
+func SigneRejectCodeToString(code uint32) string {
+	switch code {
+	case SignedRejectCodeSignatureRequired:
+		return "signature_required"
+	case SignedRejectCodeInvalidSignature:
+		return "invalid_signature"
+	case SignedRejectCodeWrongPublicKey:
+		return "wrong_public_key"
+	default:
+		return "parse_error"
+	}
+}

@@ -213,3 +213,14 @@ func (v RelationshipsMessageType) String() string {
 		return ""
 	}
 }
+
+func RelationshipsRejectCodeToString(code uint32) string {
+	switch code {
+	case RelationshipsRejectCodeNotInitiated:
+		return "not_initiated"
+	case RelationshipsRejectCodeAlreadyInitiated:
+		return "already_initiated"
+	default:
+		return "parse_error"
+	}
+}
