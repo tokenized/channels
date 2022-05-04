@@ -26,9 +26,6 @@ func Test_Invoices_Menu(t *testing.T) {
 	bitcoinProtocol := []byte("Bitcoin")
 	item1BitcoinQuantity := uint64(540000)
 
-	vendorID := uuid.New()
-	vendorKey, _ := bitcoin.GenerateKey(bitcoin.MainNet)
-	vendorPublicKey := vendorKey.PublicKey()
 	vendorName := "Vendor 1"
 
 	msg := &Menu{
@@ -55,9 +52,7 @@ func Test_Invoices_Menu(t *testing.T) {
 			},
 		},
 		Vendor: &Identity{
-			ID:        vendorID[:],
-			PublicKey: vendorPublicKey,
-			Name:      &vendorName,
+			Name: &vendorName,
 		},
 	}
 

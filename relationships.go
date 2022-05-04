@@ -12,44 +12,49 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	RelationshipsRejectCodeNotInitiated     = uint32(1)
+	RelationshipsRejectCodeAlreadyInitiated = uint32(2)
+)
+
 var (
 	ProtocolIDRelationships = envelope.ProtocolID("RS") // Protocol ID for relationship messages
 	RelationshipsVersion    = uint8(0)
 
 	RelationshipsMessageTypeInvalid    = RelationshipsMessageType(0)
 	RelationshipsMessageTypeInitiation = RelationshipsMessageType(1)
-	RelationshipsMessageTypeAccept     = RelationshipsMessageType(2)
+	RelationshipsMessageTypeUpdate     = RelationshipsMessageType(2)
 
-	ErrNotRelationships                = errors.New("Not Relationships")
 	ErrUnsupportedRelationshipsVersion = errors.New("Unsupported Relationships Version")
 	ErrUnsupportedRelationshipsMessage = errors.New("Unsupported Relationships Message")
 )
 
 type RelationshipsMessageType uint8
 
-type Entity struct {
-	Identity Identity `bsor:"1" json:"identity"`
+type RelationshipInitiation Entity
+type RelationshipUpdate Entity
 
-	// PeerChannel for relationship that the relationship accept message should be sent to.
+type Entity struct {
+	// PublicKey is the base public key for a relationship. Signature keys will be derived from it.
+	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key"`
+
+	// PeerChannels for relationship to send messages to.
 	PeerChannels PeerChannels `bsor:"2" json:"peer_channel,omitempty"`
 
 	// SupportedProtocols specifies the Envelope protocol IDs that can be interpreted by this
 	// channel. If an unsuported protocol ID is used then this channel will respond with an
 	// `UnsupportedProtocol` message.
 	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
+
+	Identity Identity `bsor:"4" json:"identity"`
 }
 
-type RelationshipInitiation Entity
-type RelationshipAccept Entity
-
 type Identity struct {
-	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key,omitempty"`
-	ID        bitcoin.Hex       `bsor:"2" json:"id,omitempty"`
-	Name      *string           `bsor:"3" json:"name,omitempty"`
-	Email     *string           `bsor:"4" json:"email,omitempty"`
-	Handle    *string           `bsor:"5" json:"handle,omitempty"`
-	Phone     *string           `bsor:"6" json:"phone,omitempty"`
-	Location  *Location         `bsor:"7" json:"location,omitempty"`
+	Name     *string   `bsor:"2" json:"name,omitempty"`
+	Email    *string   `bsor:"3" json:"email,omitempty"`
+	Handle   *string   `bsor:"4" json:"handle,omitempty"`
+	Phone    *string   `bsor:"5" json:"phone,omitempty"`
+	Location *Location `bsor:"6" json:"location,omitempty"`
 }
 
 type Location struct {
@@ -88,16 +93,20 @@ func WriteRelationship(message interface{}) (envelope.ProtocolIDs, bitcoin.Scrip
 func ParseRelationship(protocolIDs envelope.ProtocolIDs,
 	payload bitcoin.ScriptItems) (interface{}, error) {
 
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrNotRelationships, "only one protocol supported")
+	if len(protocolIDs) == 0 {
+		return nil, nil
 	}
 
 	if !bytes.Equal(protocolIDs[0], ProtocolIDRelationships) {
-		return nil, errors.Wrapf(ErrNotRelationships, "wrong protocol id: %x", protocolIDs[0])
+		return nil, nil
+	}
+
+	if len(protocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrInvalidChannels, "relationship can't wrap")
 	}
 
 	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrNotRelationships, "payload empty")
+		return nil, errors.Wrapf(ErrInvalidChannels, "payload empty")
 	}
 
 	version, err := bitcoin.ScriptNumberValue(payload[0])
@@ -130,8 +139,8 @@ func RelationshipsMessageForType(messageType RelationshipsMessageType) interface
 	switch messageType {
 	case RelationshipsMessageTypeInitiation:
 		return &RelationshipInitiation{}
-	case RelationshipsMessageTypeAccept:
-		return &RelationshipAccept{}
+	case RelationshipsMessageTypeUpdate:
+		return &RelationshipUpdate{}
 	case RelationshipsMessageTypeInvalid:
 		return nil
 	default:
@@ -143,8 +152,8 @@ func RelationshipsMessageTypeFor(message interface{}) RelationshipsMessageType {
 	switch message.(type) {
 	case *RelationshipInitiation:
 		return RelationshipsMessageTypeInitiation
-	case *RelationshipAccept:
-		return RelationshipsMessageTypeAccept
+	case *RelationshipUpdate:
+		return RelationshipsMessageTypeUpdate
 	default:
 		return RelationshipsMessageTypeInvalid
 	}
@@ -184,8 +193,8 @@ func (v *RelationshipsMessageType) SetString(s string) error {
 	switch s {
 	case "initiation":
 		*v = RelationshipsMessageTypeInitiation
-	case "accept":
-		*v = RelationshipsMessageTypeAccept
+	case "update":
+		*v = RelationshipsMessageTypeUpdate
 	default:
 		*v = RelationshipsMessageTypeInvalid
 		return fmt.Errorf("Unknown RelationshipsMessageType value \"%s\"", s)
@@ -198,8 +207,8 @@ func (v RelationshipsMessageType) String() string {
 	switch v {
 	case RelationshipsMessageTypeInitiation:
 		return "initiation"
-	case RelationshipsMessageTypeAccept:
-		return "accept"
+	case RelationshipsMessageTypeUpdate:
+		return "update"
 	default:
 		return ""
 	}

@@ -33,8 +33,9 @@ func main() {
 	listenComplete := make(chan interface{})
 	incoming := make(chan peer_channels.Message, 5)
 
+	client := peer_channels.NewClient(url)
 	go func() {
-		if err := peer_channels.AccountListen(ctx, url, accountID, token, incoming,
+		if err := client.AccountListen(ctx, accountID, token, incoming,
 			listenInterrupt); err != nil {
 			logger.Error(ctx, "Failed to listen : %s", err)
 		}
@@ -50,7 +51,7 @@ func main() {
 
 			// processMessage(ctx, msg)
 
-			if err := peer_channels.MarkMessages(ctx, url, msg.ChannelID.String(), token,
+			if err := client.MarkMessages(ctx, msg.ChannelID, token,
 				msg.Sequence, true, true); err != nil {
 				fmt.Printf("Failed to mark message as read : %s", err)
 			}

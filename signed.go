@@ -12,6 +12,21 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	// SignedRejectCodeSignatureRequired is a code specific to the signature protocol that is placed
+	// in a Reject message to signify that a message is considered invalid if it is not signed.
+	SignedRejectCodeSignatureRequired = uint32(1)
+
+	// SignedRejectCodeInvalidSignature is a code specific to the signature protocol that is placed
+	// in a Reject message to signify that a message has an invalid signature. Either the wrong
+	// key was used or the signature is just invalid.
+	SignedRejectCodeInvalidSignature = uint32(2)
+
+	// SignedRejectCodeWrongPublicKey is a code specific to the signature protocol that is placed
+	// in a Reject message to signify that a message includes the wrong public key for context.
+	SignedRejectCodeWrongPublicKey = uint32(3)
+)
+
 var (
 	ProtocolIDSignedMessages = envelope.ProtocolID("S") // Protocol ID for signed messages
 	SignedMessagesVersion    = uint8(0)
@@ -98,19 +113,13 @@ func Sign(protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems, key bit
 func ParseSigned(protocolIDs envelope.ProtocolIDs,
 	payload bitcoin.ScriptItems) (*Signature, envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
 
-	if len(protocolIDs) < 2 {
-		return nil, nil, nil, errors.Wrapf(ErrNotSignedMessage, "minimum 2 protocols: %d",
-			len(protocolIDs))
-	}
-
-	if !bytes.Equal(protocolIDs[0], ProtocolIDSignedMessages) {
-		return nil, nil, nil, errors.Wrapf(ErrNotSignedMessage, "wrong protocol id: 0x%x",
-			protocolIDs[0])
+	if len(protocolIDs) == 0 || !bytes.Equal(protocolIDs[0], ProtocolIDSignedMessages) {
+		return nil, protocolIDs, payload, nil
 	}
 	protocolIDs = protocolIDs[1:]
 
-	if len(payload) < 1 {
-		return nil, nil, nil, errors.Wrapf(ErrNotSignedMessage, "minimum 4 push ops: %d",
+	if len(payload) < 2 {
+		return nil, nil, nil, errors.Wrapf(ErrInvalidChannels, "not enough signature push ops: %d",
 			len(payload))
 	}
 

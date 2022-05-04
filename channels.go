@@ -25,15 +25,34 @@ var (
 	ChannelsMessageTypeReject      = ChannelsMessageType(2)
 	ChannelsMessageTypeMerkleProof = ChannelsMessageType(3)
 
-	RejectReasonInvalid             = RejectReason(0)
-	RejectReasonUnsupportedProtocol = RejectReason(1)
+	RejectReasonUnspecified = RejectReason(0)
 
-	// ResponsesRejectReasonChannelInUse means the peer channel this was received on is already
-	// in use for a relationship.
-	RejectReasonChannelInUse = RejectReason(2)
-	RejectReasonUnwanted     = RejectReason(3)
+	// RejectReasonInvalid means something in a sub protocol was invalid. The protocol ID with the
+	// issue and a protocol specific code should be provided.
+	RejectReasonInvalid = RejectReason(1)
+
+	// RejectReasonUnsupportedProtocol means the message received used a protocol not supported by
+	// this software.
+	RejectReasonUnsupportedProtocol = RejectReason(2)
+
+	// RejectReasonUnwanted means the request message received was valid, but the recipient doesn't
+	// want to accept it.
+	RejectReasonUnwanted = RejectReason(3)
+
+	// RejectReasonNeedPayment means that a payment request was previously exchanged and not yet
+	// fulfilled. Until that is fulfilled or renegotiated further requests will be rejected.
+	RejectReasonNeedPayment = RejectReason(4)
+
+	// RejectReasonChannelInUse means the peer channel the request was received on is already in use
+	// for another purpose.
+	RejectReasonChannelInUse = RejectReason(5)
+
+	// RejectReasonSystemIssue means there was a systems issue and it was important to respond, but
+	// a successful response was not possible.
+	RejectReasonSystemIssue = RejectReason(6)
 
 	ErrNotChannels                = errors.New("Not Channels")
+	ErrInvalidChannels            = errors.New("Invalid Channels")
 	ErrUnsupportedChannelsVersion = errors.New("Unsupported Channels Version")
 	ErrUnsupportedChannelsMessage = errors.New("Unsupported Channels Message")
 )
@@ -41,34 +60,26 @@ var (
 type ChannelsMessageType uint8
 type RejectReason uint8
 
-type UnsupportedProtocol struct {
-	ProtocolID envelope.ProtocolID `bsor:"1" json:"protocol_id"`
+type Response struct {
+	MessageHash bitcoin.Hash32 `bsor:"1" json:"message_hash"`
+}
+
+type Reject struct {
+	MessageHash bitcoin.Hash32      `bsor:"1" json:"message_hash"`
+	Reason      RejectReason        `bsor:"2" json:"reason"`
+	ProtocolID  envelope.ProtocolID `bsor:"3" json:"protocol_id"`
+	Code        uint32              `bsor:"4" json:"code"` // Sub protocol specific codes
+	Note        string              `bsor:"5" json:"note"`
 }
 
 type MerkleProof struct {
 	MerkleProof merkle_proof.MerkleProof `bsor:"2" json:"merkle_proof"`
 }
 
-type Response struct {
-	MessageHash bitcoin.Hash32 `bsor:"1" json:"message_hash"`
-}
-
-type Reject struct {
-	Reason RejectReason `bsor:"1" json:"reason"`
-	Note   string       `bsor:"2" json:"note"`
-}
-
-type Channel struct {
-	Sent         *Entity      `bsor:"1" json:"sent"`
-	Received     *Entity      `bsor:"2" json:"received"`
-	PeerChannels PeerChannels `bsor:"3" json:"peer_channels"`
-}
-
-type Channels []*Channel
-
 type PeerChannel struct {
-	URL        string `bsor:"1" json:"url"`
-	WriteToken string `bsor:"2" json:"write_token"`
+	BaseURL    string `bsor:"1" json:"base_url"`
+	ID         string `bsor:"2" json:"id"`
+	WriteToken string `bsor:"3" json:"write_token"`
 }
 
 type PeerChannels []PeerChannel
@@ -104,7 +115,7 @@ func ParseChannels(protocolIDs envelope.ProtocolIDs,
 	payload bitcoin.ScriptItems) (interface{}, envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
 
 	if len(protocolIDs) == 0 {
-		return nil, nil, nil, errors.Wrapf(ErrNotChannels, "no protocol ids")
+		return nil, nil, nil, nil
 	}
 
 	if !bytes.Equal(protocolIDs[0], ProtocolIDChannels) {
@@ -261,12 +272,22 @@ func (v *RejectReason) UnmarshalText(text []byte) error {
 
 func (v *RejectReason) SetString(s string) error {
 	switch s {
-	case "in_use":
-		*v = RejectReasonChannelInUse
+	case "unsupported_protocol":
+		*v = RejectReasonUnsupportedProtocol
+	case "invalid":
+		*v = RejectReasonInvalid
 	case "unwanted":
 		*v = RejectReasonUnwanted
+	case "need_payment":
+		*v = RejectReasonNeedPayment
+	case "in_use":
+		*v = RejectReasonChannelInUse
+	case "system_issue":
+		*v = RejectReasonSystemIssue
+	case "unspecified":
+		*v = RejectReasonUnspecified
 	default:
-		*v = RejectReasonInvalid
+		*v = RejectReasonUnspecified
 		return fmt.Errorf("Unknown RejectReason value \"%s\"", s)
 	}
 
@@ -275,10 +296,20 @@ func (v *RejectReason) SetString(s string) error {
 
 func (v RejectReason) String() string {
 	switch v {
-	case RejectReasonChannelInUse:
-		return "in_use"
+	case RejectReasonUnsupportedProtocol:
+		return "unsupported_protocol"
+	case RejectReasonInvalid:
+		return "invalid"
 	case RejectReasonUnwanted:
 		return "unwanted"
+	case RejectReasonNeedPayment:
+		return "need_payment"
+	case RejectReasonChannelInUse:
+		return "in_use"
+	case RejectReasonSystemIssue:
+		return "system_issue"
+	case RejectReasonUnspecified:
+		return "unspecified"
 	default:
 		return ""
 	}

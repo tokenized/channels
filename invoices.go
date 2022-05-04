@@ -40,7 +40,6 @@ var (
 	PeriodTypeMonth       = PeriodType(6)
 	PeriodTypeYear        = PeriodType(7)
 
-	ErrNotInvoice                 = errors.New("Not Invoices")
 	ErrUnsupportedInvoicesVersion = errors.New("Unsupported Invoices Version")
 	ErrUnsupportedInvoicesMessage = errors.New("Unsupported Invoices Message")
 	ErrInvoiceMissing             = errors.New("Invoice Missing")
@@ -232,16 +231,20 @@ func WriteInvoice(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItem
 func ParseInvoice(protocolIDs envelope.ProtocolIDs,
 	payload bitcoin.ScriptItems) (interface{}, error) {
 
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
+	if len(protocolIDs) == 0 {
+		return nil, nil
 	}
 
 	if !bytes.Equal(protocolIDs[0], ProtocolIDInvoices) {
-		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
+		return nil, nil
+	}
+
+	if len(protocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrInvalidChannels, "invoices can't wrap")
 	}
 
 	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrNotInvoice, "payload empty")
+		return nil, errors.Wrapf(ErrInvalidChannels, "payload empty")
 	}
 
 	version, err := bitcoin.ScriptNumberValue(payload[0])

@@ -24,7 +24,6 @@ var (
 	PeerChannelTypeStandard = PeerChannelType(0)
 	PeerChannelTypePublic   = PeerChannelType(1)
 
-	ErrNotPeerChannels                = errors.New("Not PeerChannels")
 	ErrUnsupportedPeerChannelsVersion = errors.New("Unsupported PeerChannels Version")
 	ErrUnsupportedPeerChannelsMessage = errors.New("Unsupported PeerChannels Message")
 )
@@ -68,16 +67,20 @@ func WritePeerChannel(message interface{}) (envelope.ProtocolIDs, bitcoin.Script
 func ParsePeerChannel(protocolIDs envelope.ProtocolIDs,
 	payload bitcoin.ScriptItems) (interface{}, error) {
 
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrNotInvoice, "only one protocol supported")
+	if len(protocolIDs) == 0 {
+		return nil, nil
 	}
 
 	if !bytes.Equal(protocolIDs[0], ProtocolIDPeerChannels) {
-		return nil, errors.Wrapf(ErrNotInvoice, "wrong protocol id: %x", protocolIDs[0])
+		return nil, nil
+	}
+
+	if len(protocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrInvalidChannels, "peer channels can't wrap")
 	}
 
 	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrNotPeerChannels, "payload empty")
+		return nil, errors.Wrapf(ErrInvalidChannels, "payload empty")
 	}
 
 	version, err := bitcoin.ScriptNumberValue(payload[0])
