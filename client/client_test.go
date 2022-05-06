@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/tokenized/channels"
-	"github.com/tokenized/channels/wallet"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
@@ -21,65 +20,13 @@ import (
 func Test_Initiate(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
 	peerChannelsFactory := peer_channels.NewFactory()
-	channelClient, _ := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
+	peerClient, _ := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
 
 	/******************************** Create User 1 Client ****************************************/
 	/**********************************************************************************************/
-	user1Name := "User 1"
-	user1Identity := channels.Identity{Name: &user1Name}
-	user1AccountID, user1AccountToken, err := channelClient.CreateAccount(ctx, "")
-	if err != nil {
-		t.Fatalf("Failed to create account : %s", err)
-	}
-
-	user1PublicPeerChannel, err := channelClient.CreatePublicChannel(ctx, *user1AccountID,
-		*user1AccountToken)
-	if err != nil {
-		t.Fatalf("Failed to create public channel : %s", err)
-	}
-
-	// js, _ := json.MarshalIndent(user1PublicPeerChannel, "", "  ")
-	// t.Logf("User 1 Public Peer Channel : %s", js)
-
-	user1Client := NewClient(Account{
-		BaseURL: peer_channels.MockClientURL,
-		ID:      *user1AccountID,
-		Token:   *user1AccountToken,
-	}, user1Identity, nil, peerChannelsFactory)
-
-	user1PublicPeerChannels := channels.PeerChannels{
-		{
-			BaseURL: peer_channels.MockClientURL,
-			ID:      user1PublicPeerChannel.ID,
-		},
-	}
-	user1PublicChannel := NewInitiationChannel(user1PublicPeerChannels)
-	if err := user1Client.AddChannel(user1PublicChannel); err != nil {
-		t.Fatalf("Failed to add channel : %s", err)
-	}
-
-	user1PeerChannel, err := channelClient.CreateChannel(ctx, *user1AccountID, *user1AccountToken)
-	if err != nil {
-		t.Fatalf("Failed to create channel : %s", err)
-	}
-	user1PeerChannels := channels.PeerChannels{
-		{
-			BaseURL:    peer_channels.MockClientURL,
-			ID:         user1PeerChannel.ID,
-			WriteToken: user1PeerChannel.AccessTokens[1].Token,
-		},
-	}
-
-	user1BaseKey, _ := bitcoin.GenerateKey(bitcoin.MainNet)
-	user1ChannelHash, user1ChannelKey := wallet.GenerateHashKey(user1BaseKey, "test")
-	user1ChannelPublicKey := user1ChannelKey.PublicKey()
-
-	user1Channel := NewPrivateChannel(user1ChannelHash, user1ChannelPublicKey, user1PeerChannels,
-		user1Identity)
-
-	if err := user1Client.AddChannel(user1Channel); err != nil {
-		t.Fatalf("Failed to add channel : %s", err)
-	}
+	user1 := CreateMockUser(ctx, peerChannelsFactory, "User 1")
+	user1PublicChannel := user1.CreateInitiationChannel(ctx, peerClient)
+	user1Channel := user1.CreateChannel(ctx, peerClient)
 
 	if user1Channel.Outgoing.Entity != nil {
 		t.Errorf("User 1 outgoing entity should be nil")
@@ -87,45 +34,8 @@ func Test_Initiate(t *testing.T) {
 
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
-	user2Name := "User 2"
-	user2Identity := channels.Identity{Name: &user2Name}
-	user2AccountID, user2AccountToken, err := channelClient.CreateAccount(ctx, "")
-	if err != nil {
-		t.Fatalf("Failed to create account : %s", err)
-	}
-
-	user2PeerChannel, err := channelClient.CreateChannel(ctx, *user2AccountID, *user2AccountToken)
-	if err != nil {
-		t.Fatalf("Failed to create channel : %s", err)
-	}
-
-	// js, _ = json.MarshalIndent(user2PeerChannel, "", "  ")
-	// t.Logf("User 2 Peer Channel : %s", js)
-
-	user2Client := NewClient(Account{
-		BaseURL: peer_channels.MockClientURL,
-		ID:      *user2AccountID,
-		Token:   *user2AccountToken,
-	}, user1Identity, nil, peerChannelsFactory)
-
-	user2PeerChannels := channels.PeerChannels{
-		{
-			BaseURL:    peer_channels.MockClientURL,
-			ID:         user2PeerChannel.ID,
-			WriteToken: user2PeerChannel.AccessTokens[1].Token,
-		},
-	}
-
-	user2BaseKey, _ := bitcoin.GenerateKey(bitcoin.MainNet)
-	user2ChannelHash, user2ChannelKey := wallet.GenerateHashKey(user2BaseKey, "test")
-	user2ChannelPublicKey := user2ChannelKey.PublicKey()
-
-	user2Channel := NewPrivateChannel(user2ChannelHash, user2ChannelPublicKey, user2PeerChannels,
-		user2Identity)
-
-	if err := user2Client.AddChannel(user2Channel); err != nil {
-		t.Fatalf("Failed to add channel : %s", err)
-	}
+	user2 := CreateMockUser(ctx, peerChannelsFactory, "User 2")
+	user2Channel := user2.CreateChannel(ctx, peerClient)
 
 	if user2Channel.Outgoing.Entity != nil {
 		t.Errorf("User 2 outgoing entity should be nil")
@@ -138,24 +48,24 @@ func Test_Initiate(t *testing.T) {
 	interrupt1 := make(chan interface{})
 	wait.Add(1)
 	go func() {
-		user1Client.Run(ctx, interrupt1)
+		user1.Client.Run(ctx, interrupt1)
 		wait.Done()
 	}()
 
 	interrupt2 := make(chan interface{})
 	wait.Add(1)
 	go func() {
-		user2Client.Run(ctx, interrupt1)
+		user2.Client.Run(ctx, interrupt1)
 		wait.Done()
 	}()
 
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
 	initiation := &channels.RelationshipInitiation{
-		PublicKey:          user2ChannelPublicKey,
-		PeerChannels:       user2PeerChannels,
+		PublicKey:          user2.HashKey(user2Channel.Hash()).PublicKey(),
+		PeerChannels:       user2Channel.Incoming.Entity.PeerChannels,
 		SupportedProtocols: SupportedProtocols(),
-		Identity:           user2Identity,
+		Identity:           user2.Client.Identity,
 	}
 
 	initPayload, err := initiation.Write()
@@ -164,7 +74,8 @@ func Test_Initiate(t *testing.T) {
 	}
 
 	initRandHash := randHash()
-	signature, err := channels.Sign(initPayload, user2ChannelKey, &initRandHash, false)
+	signature, err := channels.Sign(initPayload, user2.HashKey(user2Channel.Hash()), &initRandHash,
+		false)
 	if err != nil {
 		t.Fatalf("Failed to sign initiation message : %s", err)
 	}
@@ -174,15 +85,17 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to wrap initiation message : %s", err)
 	}
 
-	initHash, err := SendMessage(ctx, peerChannelsFactory, user1PublicPeerChannels, initPayload)
-	if err != nil {
-		t.Fatalf("Failed to send initiation : %s", err)
-	}
-
 	scriptItems := envelopeV1.Wrap(initPayload)
 	script, err := scriptItems.Script()
 	if err != nil {
 		t.Fatalf("Failed to create script : %s", err)
+	}
+
+	initHash := bitcoin.Hash32(sha256.Sum256(script))
+
+	if err := SendMessage(ctx, peerChannelsFactory, user1PublicChannel.Incoming.Entity.PeerChannels,
+		script); err != nil {
+		t.Fatalf("Failed to send initiation : %s", err)
 	}
 
 	user2Channel.Outgoing.AddMessage(ctx, script)
@@ -192,7 +105,7 @@ func Test_Initiate(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 250)
 
-	user1Messages, err := user1Client.GetUnprocessedMessages(ctx)
+	user1Messages, err := user1.Client.GetUnprocessedMessages(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
@@ -242,22 +155,22 @@ func Test_Initiate(t *testing.T) {
 		}
 		initiationFound = true
 
-		if !initiation.PublicKey.Equal(user2ChannelPublicKey) {
+		if !initiation.PublicKey.Equal(user2.HashKey(user2Channel.Hash()).PublicKey()) {
 			t.Errorf("Wrong public key in initiation : got %s, want %s",
-				initiation.PublicKey, user2ChannelPublicKey)
+				initiation.PublicKey, user2.HashKey(user2Channel.Hash()).PublicKey())
 		}
 
-		if initiation.PeerChannels[0].ID != user2PeerChannel.ID {
+		if initiation.PeerChannels[0].ID != user2Channel.Incoming.Entity.PeerChannels[0].ID {
 			t.Errorf("Wrong peer channel in initiation : got %s, want %s",
-				initiation.PeerChannels[0].ID, user2PeerChannel.ID)
+				initiation.PeerChannels[0].ID, user2Channel.Incoming.Entity.PeerChannels[0].ID)
 		}
 
 		// Respond to relationship initiation
 		responseInitiation := &channels.RelationshipInitiation{
-			PublicKey:          user1ChannelPublicKey,
-			PeerChannels:       user1PeerChannels,
+			PublicKey:          user1Channel.Incoming.Entity.PublicKey,
+			PeerChannels:       user1Channel.Incoming.Entity.PeerChannels,
 			SupportedProtocols: SupportedProtocols(),
-			Identity:           user1Identity,
+			Identity:           user1.Client.Identity,
 		}
 
 		responsePayload, err := responseInitiation.Write()
@@ -269,7 +182,7 @@ func Test_Initiate(t *testing.T) {
 			MessageHash: bitcoin.Hash32(sha256.Sum256(message.Payload)),
 		}
 
-		if !response.MessageHash.Equal(initHash) {
+		if !response.MessageHash.Equal(&initHash) {
 			t.Errorf("Wrong message hash for response : got %s, want %s", response.MessageHash,
 				initHash)
 		}
@@ -280,7 +193,7 @@ func Test_Initiate(t *testing.T) {
 		}
 
 		responseHash := randHash()
-		signature, err = channels.Sign(responsePayload, user1ChannelKey,
+		signature, err = channels.Sign(responsePayload, user1.HashKey(user1Channel.Hash()),
 			&responseHash, false)
 		if err != nil {
 			t.Fatalf("Failed to sign initiation message : %s", err)
@@ -291,15 +204,15 @@ func Test_Initiate(t *testing.T) {
 			t.Fatalf("Failed to wrap initiation message : %s", err)
 		}
 
-		_, err = SendMessage(ctx, peerChannelsFactory, initiation.PeerChannels, responsePayload)
-		if err != nil {
-			t.Fatalf("Failed to send initiation : %s", err)
-		}
-
 		scriptItems := envelopeV1.Wrap(responsePayload)
 		script, err := scriptItems.Script()
 		if err != nil {
 			t.Fatalf("Failed to create script : %s", err)
+		}
+
+		if err := SendMessage(ctx, peerChannelsFactory, initiation.PeerChannels,
+			script); err != nil {
+			t.Fatalf("Failed to send initiation : %s", err)
 		}
 
 		user1Channel.Outgoing.AddMessage(ctx, script)
@@ -318,7 +231,7 @@ func Test_Initiate(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 250)
 
-	user2Messages, err := user2Client.GetUnprocessedMessages(ctx)
+	user2Messages, err := user2.Client.GetUnprocessedMessages(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
@@ -368,14 +281,16 @@ func Test_Initiate(t *testing.T) {
 		}
 		responseFound = true
 
-		if !msg.PublicKey.Equal(user1ChannelPublicKey) {
+		publicKey := user1.HashKey(user1Channel.Hash()).PublicKey()
+
+		if !msg.PublicKey.Equal(publicKey) {
 			t.Errorf("Wrong public key in initiation response : got %s, want %s",
-				msg.PublicKey, user1ChannelPublicKey)
+				msg.PublicKey, publicKey)
 		}
 
-		if msg.PeerChannels[0].ID != user1PeerChannel.ID {
+		if msg.PeerChannels[0].ID != user1Channel.Incoming.Entity.PeerChannels[0].ID {
 			t.Errorf("Wrong peer channel in initiation response : got %s, want %s",
-				msg.PeerChannels[0].ID, user1PeerChannel.ID)
+				msg.PeerChannels[0].ID, user1Channel.Incoming.Entity.PeerChannels[0].ID)
 		}
 	}
 
@@ -386,6 +301,9 @@ func Test_Initiate(t *testing.T) {
 	if user2Channel.Outgoing.Entity == nil {
 		t.Errorf("User 2 outgoing entity should not be nil")
 	}
+
+	/**************************************** Stop Clients ****************************************/
+	/**********************************************************************************************/
 
 	close(interrupt1)
 	close(interrupt2)

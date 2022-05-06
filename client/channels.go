@@ -166,46 +166,40 @@ func (c *ChannelCommunication) GetUnprocessedMessages(ctx context.Context) (Mess
 	return result, nil
 }
 
-func (c *ChannelCommunication) AddMessage(ctx context.Context, payload bitcoin.Script) error {
+func (c *ChannelCommunication) AddMessage(ctx context.Context, message bitcoin.Script) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	now := channels.Now()
-	message := &Message{
-		Payload:  payload,
+	msg := &Message{
+		Payload:  message,
 		Received: &now,
 	}
 
-	hash := bitcoin.Hash32(sha256.Sum256(payload))
+	hash := bitcoin.Hash32(sha256.Sum256(message))
 
-	c.Messages = append(c.Messages, message)
+	c.Messages = append(c.Messages, msg)
 	c.MessageMap[hash] = len(c.Messages)
 
-	logger.Info(ctx, "Added message")
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("message_hash", hash),
+	}, "Added message")
 	return nil
 }
 
 func SendMessage(ctx context.Context, factory *peer_channels.Factory,
-	peerChannels channels.PeerChannels, payload envelope.Data) (*bitcoin.Hash32, error) {
-
-	scriptItems := envelopeV1.Wrap(payload)
-	script, err := scriptItems.Script()
-	if err != nil {
-		return nil, errors.Wrap(err, "script")
-	}
-
-	hash := bitcoin.Hash32(sha256.Sum256(script))
+	peerChannels channels.PeerChannels, message bitcoin.Script) error {
 
 	success := false
 	var lastErr error
 	for _, peerChannel := range peerChannels {
 		peerClient, err := factory.NewClient(peerChannel.BaseURL)
 		if err != nil {
-			return nil, errors.Wrap(err, "peer client")
+			return errors.Wrap(err, "peer client")
 		}
 
 		if _, err := peerClient.PostBinaryMessage(ctx, peerChannel.ID, peerChannel.WriteToken,
-			script); err != nil {
+			message); err != nil {
 			logger.WarnWithFields(ctx, []logger.Field{
 				logger.String("base_url", peerChannel.BaseURL),
 				logger.String("channel", peerChannel.ID),
@@ -217,10 +211,10 @@ func SendMessage(ctx context.Context, factory *peer_channels.Factory,
 	}
 
 	if !success {
-		return nil, lastErr
+		return lastErr
 	}
 
-	return &hash, nil
+	return nil
 }
 
 func (c *Channel) IsInitiation() bool {
@@ -267,7 +261,6 @@ func (c *Channel) Reject(ctx context.Context, message *peer_channels.Message,
 }
 
 func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Message) error {
-
 	if err := c.Incoming.AddMessage(ctx, bitcoin.Script(message.Payload)); err != nil {
 		return errors.Wrap(err, "add message")
 	}
@@ -289,7 +282,9 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 	}
 
 	if wMessage.Response != nil {
-		fmt.Printf("Response to : %s\n", wMessage.Response.MessageHash)
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.Stringer("response_hash", wMessage.Response.MessageHash),
+		}, "Response")
 	}
 
 	publicKey := c.Outgoing.GetPublicKey()
@@ -304,8 +299,6 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 			// Use newly established relationship key
 			publicKey = &entity.PublicKey
 		}
-	default:
-		return channels.ErrUnsupportedRelationshipsMessage
 	}
 
 	if publicKey == nil {

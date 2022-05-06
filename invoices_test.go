@@ -175,8 +175,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 
 	msg := &InvoiceTx{
 		Tx: ExpandedTx{
-			Tx:      tx,
-			Outputs: outputs,
+			Tx: tx,
 		},
 	}
 

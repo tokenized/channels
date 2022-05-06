@@ -11,7 +11,6 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
-	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/wire"
 
@@ -37,10 +36,15 @@ const (
 	PeriodTypeWeek        = PeriodType(5)
 	PeriodTypeMonth       = PeriodType(6)
 	PeriodTypeYear        = PeriodType(7)
+
+	FeeQuoteTypeStandard = "standard"
+	FeeQuoteTypeData     = "data" // only bytes in scripts that start with OP_RETURN or OP_FALSE, OP_RETURN
 )
 
 var (
 	ProtocolIDInvoices = envelope.ProtocolID("I") // Protocol ID for invoice negotiation
+
+	TokenProtocolBitcoin = []byte("Bitcoin")
 
 	ErrUnsupportedInvoicesMessage = errors.New("Unsupported Invoices Message")
 	ErrInvoiceMissing             = errors.New("Invoice Missing")
@@ -207,7 +211,21 @@ func ConvertToTimestamp(t time.Time) Timestamp {
 // InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
 // payments for the items contained in the invoice.
 type InvoiceTx struct {
-	Tx ExpandedTx `bsor:"1" json:"tx"`
+	Tx   ExpandedTx `bsor:"1" json:"tx"`
+	Fees FeeQuotes  `bsor:"2" json:"fees"` // tx fee requirements
+}
+
+type FeeQuote struct {
+	FeeType   string `bsor:"1" json:"feeType"`
+	MiningFee Fee    `bsor:"2" json:"miningFee"`
+	RelayFee  Fee    `bsor:"3" json:"relayFee"`
+}
+
+type FeeQuotes []*FeeQuote
+
+type Fee struct {
+	Satoshis uint64 `bsor:"1" json:"satoshis"`
+	Bytes    uint64 `bsor:"2" json:"bytes"`
 }
 
 func (*InvoiceTx) ProtocolID() envelope.ProtocolID {
@@ -233,8 +251,7 @@ func (m *InvoiceTx) Write() (envelope.Data, error) {
 
 // InvoicePayment is a payment transaction that embeds the approved invoice.
 type InvoicePayment struct {
-	Tx   ExpandedTx             `bsor:"1" json:"tx"`
-	Fees merchant_api.FeeQuotes `bsor:"3" json:"fees"` // tx fee requirements
+	Tx ExpandedTx `bsor:"1" json:"tx"`
 }
 
 func (*InvoicePayment) ProtocolID() envelope.ProtocolID {
@@ -261,9 +278,8 @@ func (m *InvoicePayment) Write() (envelope.Data, error) {
 // ExpandedTx is a Bitcoin transaction with ancestor information.
 // All ancestor transactions back to merkle proofs should be provided.
 type ExpandedTx struct {
-	Tx        *wire.MsgTx `bsor:"1" json:"tx"`        // marshals as raw bytes
-	Outputs   Outputs     `bsor:"2" json:"outputs"`   // outputs spent by inputs of tx
-	Ancestors AncestorTxs `bsor:"3" json:"ancestors"` // ancestor history of outputs up to merkle proofs
+	Tx        *wire.MsgTx `bsor:"1" json:"tx"`                  // marshals as raw bytes
+	Ancestors AncestorTxs `bsor:"2" json:"ancestors,omitempty"` // ancestor history of outputs up to merkle proofs
 }
 
 // Output is a Bitcoin transaction output that is spent.
@@ -316,7 +332,7 @@ type Period struct {
 
 // TokenID specifies the token protocol and the unique ID of the token.
 type TokenID struct {
-	Protocol bitcoin.Hex `bsor:"1" json:"protocol"` // Specify Bitcoin for satoshis
+	Protocol bitcoin.Hex `bsor:"1" json:"protocol"` // Leave empty for bitcoin
 	ID       bitcoin.Hex `bsor:"2" json:"id,omitempty"`
 }
 

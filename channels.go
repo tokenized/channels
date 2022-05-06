@@ -60,10 +60,14 @@ type WrappedMessage struct {
 	Message   ChannelsMessage
 }
 
-func Wrap(payload envelope.Data, key bitcoin.Key, hash bitcoin.Hash32,
+func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32,
 	responseHash *bitcoin.Hash32) (bitcoin.Script, error) {
 
-	var err error
+	payload, err := msg.Write()
+	if err != nil {
+		return nil, errors.Wrap(err, "write")
+	}
+
 	if responseHash != nil {
 		response := &Response{
 			MessageHash: *responseHash,
