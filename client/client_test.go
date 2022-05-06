@@ -1,8 +1,10 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/channels/wallet"
+	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
@@ -78,6 +81,10 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to add channel : %s", err)
 	}
 
+	if user1Channel.Outgoing.Entity != nil {
+		t.Errorf("User 1 outgoing entity should be nil")
+	}
+
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
 	user2Name := "User 2"
@@ -120,6 +127,10 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to add channel : %s", err)
 	}
 
+	if user2Channel.Outgoing.Entity != nil {
+		t.Errorf("User 2 outgoing entity should be nil")
+	}
+
 	/*************************************** Start Clients ****************************************/
 	/**********************************************************************************************/
 	wait := &sync.WaitGroup{}
@@ -147,25 +158,34 @@ func Test_Initiate(t *testing.T) {
 		Identity:           user2Identity,
 	}
 
-	initProtocolIDs, initPayload, err := channels.WriteRelationship(initiation)
+	initPayload, err := initiation.Write()
 	if err != nil {
 		t.Fatalf("Failed to write initiation message : %s", err)
 	}
 
-	initHash := randHash()
-	initProtocolIDs, initPayload, err = channels.Sign(initProtocolIDs, initPayload, user2ChannelKey,
-		&initHash, false)
+	initRandHash := randHash()
+	signature, err := channels.Sign(initPayload, user2ChannelKey, &initRandHash, false)
 	if err != nil {
 		t.Fatalf("Failed to sign initiation message : %s", err)
 	}
 
-	hash, err := SendMessage(ctx, peerChannelsFactory, user1PublicPeerChannels, initProtocolIDs,
-		initPayload)
+	initPayload, err = signature.Wrap(initPayload)
+	if err != nil {
+		t.Fatalf("Failed to wrap initiation message : %s", err)
+	}
+
+	initHash, err := SendMessage(ctx, peerChannelsFactory, user1PublicPeerChannels, initPayload)
 	if err != nil {
 		t.Fatalf("Failed to send initiation : %s", err)
 	}
 
-	user2Channel.Outgoing.AddMessage(ctx, *hash, initProtocolIDs, initPayload)
+	scriptItems := envelopeV1.Wrap(initPayload)
+	script, err := scriptItems.Script()
+	if err != nil {
+		t.Fatalf("Failed to create script : %s", err)
+	}
+
+	user2Channel.Outgoing.AddMessage(ctx, script)
 
 	/******************************** Respond to Initiation Message *******************************/
 	/**********************************************************************************************/
@@ -185,12 +205,26 @@ func Test_Initiate(t *testing.T) {
 	for _, channelMessage := range user1Messages {
 		message := channelMessage.Message
 
-		_, protocolIDs, payload, err := channels.ParseSigned(message.ProtocolIDs, message.Payload)
+		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload))
+		if err != nil {
+			t.Fatalf("Failed to parse envelope : %s", err)
+		}
+
+		_, payload, err = channels.ParseSigned(payload)
 		if err != nil {
 			t.Fatalf("Failed to parse signature : %s", err)
 		}
 
-		relationshipMsg, err := channels.ParseRelationship(protocolIDs, payload)
+		var receivedResponse *channels.Response
+		receivedResponse, payload, err = channels.ParseResponse(payload)
+		if err != nil {
+			t.Fatalf("Failed to parse channels : %s", err)
+		}
+		if receivedResponse != nil {
+			t.Errorf("Should not be a response")
+		}
+
+		relationshipMsg, err := channels.ParseRelationship(payload)
 		if err != nil {
 			t.Fatalf("Failed to parse relationship : %s", err)
 		}
@@ -226,29 +260,57 @@ func Test_Initiate(t *testing.T) {
 			Identity:           user1Identity,
 		}
 
-		responseProtocolIDs, responsePayload, err := channels.WriteRelationship(responseInitiation)
+		responsePayload, err := responseInitiation.Write()
 		if err != nil {
 			t.Fatalf("Failed to write initiation message : %s", err)
 		}
 
+		response := &channels.Response{
+			MessageHash: bitcoin.Hash32(sha256.Sum256(message.Payload)),
+		}
+
+		if !response.MessageHash.Equal(initHash) {
+			t.Errorf("Wrong message hash for response : got %s, want %s", response.MessageHash,
+				initHash)
+		}
+
+		responsePayload, err = response.Wrap(responsePayload)
+		if err != nil {
+			t.Fatalf("Failed to write response wrapper : %s", err)
+		}
+
 		responseHash := randHash()
-		responseProtocolIDs, responsePayload, err = channels.Sign(responseProtocolIDs,
-			responsePayload, user1ChannelKey, &responseHash, false)
+		signature, err = channels.Sign(responsePayload, user1ChannelKey,
+			&responseHash, false)
 		if err != nil {
 			t.Fatalf("Failed to sign initiation message : %s", err)
 		}
 
-		hash, err := SendMessage(ctx, peerChannelsFactory, initiation.PeerChannels,
-			responseProtocolIDs, responsePayload)
+		responsePayload, err = signature.Wrap(responsePayload)
+		if err != nil {
+			t.Fatalf("Failed to wrap initiation message : %s", err)
+		}
+
+		_, err = SendMessage(ctx, peerChannelsFactory, initiation.PeerChannels, responsePayload)
 		if err != nil {
 			t.Fatalf("Failed to send initiation : %s", err)
 		}
 
-		user1Channel.Outgoing.AddMessage(ctx, *hash, responseProtocolIDs, responsePayload)
+		scriptItems := envelopeV1.Wrap(responsePayload)
+		script, err := scriptItems.Script()
+		if err != nil {
+			t.Fatalf("Failed to create script : %s", err)
+		}
+
+		user1Channel.Outgoing.AddMessage(ctx, script)
 	}
 
 	if !initiationFound {
 		t.Errorf("Initiation not found")
+	}
+
+	if user2Channel.Outgoing.Entity != nil {
+		t.Errorf("User 2 outgoing entity should be nil")
 	}
 
 	/***************************** Receive Initiation Response Message ****************************/
@@ -269,12 +331,26 @@ func Test_Initiate(t *testing.T) {
 	for _, channelMessage := range user2Messages {
 		message := channelMessage.Message
 
-		_, protocolIDs, payload, err := channels.ParseSigned(message.ProtocolIDs, message.Payload)
+		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload))
+		if err != nil {
+			t.Fatalf("Failed to parse envelope : %s", err)
+		}
+
+		_, payload, err = channels.ParseSigned(payload)
 		if err != nil {
 			t.Fatalf("Failed to parse signature : %s", err)
 		}
 
-		relationshipMsg, err := channels.ParseRelationship(protocolIDs, payload)
+		var receivedResponse *channels.Response
+		receivedResponse, payload, err = channels.ParseResponse(payload)
+		if err != nil {
+			t.Fatalf("Failed to parse response : %s", err)
+		}
+		if receivedResponse == nil {
+			t.Errorf("Response does not contain response header")
+		}
+
+		relationshipMsg, err := channels.ParseRelationship(payload)
 		if err != nil {
 			t.Fatalf("Failed to parse relationship : %s", err)
 		}
@@ -305,6 +381,10 @@ func Test_Initiate(t *testing.T) {
 
 	if !responseFound {
 		t.Errorf("Initiation response not found")
+	}
+
+	if user2Channel.Outgoing.Entity == nil {
+		t.Errorf("User 2 outgoing entity should not be nil")
 	}
 
 	close(interrupt1)

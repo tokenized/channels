@@ -1,13 +1,11 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"sync"
 
 	"github.com/tokenized/channels"
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
-	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
@@ -141,7 +139,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 
 func (c *Client) handleMessages(ctx context.Context) error {
 	for message := range c.incomingMessages {
-		if err := c.handleMessage(ctx, message); err != nil {
+		if err := c.handleMessage(ctx, &message); err != nil {
 			return err
 		}
 	}
@@ -149,7 +147,7 @@ func (c *Client) handleMessages(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) handleMessage(ctx context.Context, message peer_channels.Message) error {
+func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Message) error {
 	logger.VerboseWithFields(ctx, []logger.Field{
 		logger.String("channel", message.ChannelID),
 		logger.String("content_type", message.ContentType),
@@ -196,18 +194,9 @@ func (c *Client) handleMessage(ctx context.Context, message peer_channels.Messag
 }
 
 func (c *Client) processMessage(ctx context.Context, channel *Channel,
-	message peer_channels.Message) error {
+	message *peer_channels.Message) error {
 
-	protocolIDs, payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload))
-	if err != nil {
-		return errors.Wrap(err, "parse envelope")
-	}
-
-	if len(protocolIDs) == 0 {
-		return errors.New("No Protocol IDs")
-	}
-
-	if err := channel.ProcessMessage(ctx, message, protocolIDs, payload); err != nil {
+	if err := channel.ProcessMessage(ctx, message); err != nil {
 		return errors.Wrap(err, "channel")
 	}
 

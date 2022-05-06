@@ -21,13 +21,19 @@ func Test_SignedMessage_WithKey(t *testing.T) {
 	rand.Read(testData)
 	testDataItem := bitcoin.NewPushDataScriptItem(testData)
 
-	protocolIDs, scriptItems, err := Sign(envelope.ProtocolIDs{testProtocolID},
-		bitcoin.ScriptItems{testDataItem}, key, nil, true)
+	signature, err := Sign(envelope.Data{envelope.ProtocolIDs{testProtocolID},
+		bitcoin.ScriptItems{testDataItem}}, key, nil, true)
 	if err != nil {
-		t.Fatalf("Failed to sign message : %s", err)
+		t.Fatalf("Failed to sign payload : %s", err)
 	}
 
-	envelopeScriptItems := envelopeV1.Wrap(protocolIDs, scriptItems)
+	payload, err := signature.Wrap(envelope.Data{envelope.ProtocolIDs{testProtocolID},
+		bitcoin.ScriptItems{testDataItem}})
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
+
+	envelopeScriptItems := envelopeV1.Wrap(payload)
 	script, err := envelopeScriptItems.Script()
 	if err != nil {
 		t.Fatalf("Failed to create script : %s", err)
@@ -36,25 +42,26 @@ func Test_SignedMessage_WithKey(t *testing.T) {
 	t.Logf("Script : %s", script)
 
 	buf := bytes.NewReader(script)
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(buf)
+	readPayload, err := envelopeV1.Parse(buf)
 	if err != nil {
 		t.Fatalf("Failed to parse envelope : %s", err)
 	}
 
-	if len(readProtocolIDs) != 2 {
-		t.Fatalf("Wrong protocol ID count : got %d, want %d", len(readProtocolIDs), 2)
+	if len(readPayload.ProtocolIDs) != 2 {
+		t.Fatalf("Wrong protocol ID count : got %d, want %d", len(readPayload.ProtocolIDs), 2)
 	}
 
-	if !bytes.Equal(readProtocolIDs[0], ProtocolIDSignedMessages) {
-		t.Fatalf("Wrong first protocol ID : got %x, want %x", readProtocolIDs[0],
+	if !bytes.Equal(readPayload.ProtocolIDs[0], ProtocolIDSignedMessages) {
+		t.Fatalf("Wrong first protocol ID : got %x, want %x", readPayload.ProtocolIDs[0],
 			ProtocolIDSignedMessages)
 	}
 
-	if !bytes.Equal(readProtocolIDs[1], testProtocolID) {
-		t.Fatalf("Wrong second protocol ID : got %x, want %x", readProtocolIDs[0], testProtocolID)
+	if !bytes.Equal(readPayload.ProtocolIDs[1], testProtocolID) {
+		t.Fatalf("Wrong second protocol ID : got %x, want %x", readPayload.ProtocolIDs[0],
+			testProtocolID)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to parse signed message : %s", err)
 	}
@@ -68,25 +75,26 @@ func Test_SignedMessage_WithKey(t *testing.T) {
 		t.Logf("Message signature verified")
 	}
 
-	if len(signedProtocolIDs) != 1 {
-		t.Fatalf("Wrong protocol id count : got %d, want %d", len(signedProtocolIDs), 1)
+	if len(signedPayload.ProtocolIDs) != 1 {
+		t.Fatalf("Wrong protocol id count : got %d, want %d", len(signedPayload.ProtocolIDs), 1)
 	}
 
-	if !bytes.Equal(signedProtocolIDs[0], testProtocolID) {
-		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedProtocolIDs[0], testProtocolID)
+	if !bytes.Equal(signedPayload.ProtocolIDs[0], testProtocolID) {
+		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload.ProtocolIDs[0],
+			testProtocolID)
 	}
 
-	if len(signedPayload) != 1 {
-		t.Fatalf("Wrong payload count : got %d, want %d", len(signedPayload), 1)
+	if len(signedPayload.Payload) != 1 {
+		t.Fatalf("Wrong payload count : got %d, want %d", len(signedPayload.Payload), 1)
 	}
 
-	if signedPayload[0].Type != bitcoin.ScriptItemTypePushData {
-		t.Fatalf("Wrong payload type : got %d, want %d", signedPayload[0].Type,
+	if signedPayload.Payload[0].Type != bitcoin.ScriptItemTypePushData {
+		t.Fatalf("Wrong payload type : got %d, want %d", signedPayload.Payload[0].Type,
 			bitcoin.ScriptItemTypePushData)
 	}
 
-	if !bytes.Equal(signedPayload[0].Data, testData) {
-		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload[0].Data, testData)
+	if !bytes.Equal(signedPayload.Payload[0].Data, testData) {
+		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload.Payload[0].Data, testData)
 	}
 }
 
@@ -99,37 +107,43 @@ func Test_SignedMessage_WithoutKey(t *testing.T) {
 	rand.Read(testData)
 	testDataItem := bitcoin.NewPushDataScriptItem(testData)
 
-	protocolIDs, scriptItems, err := Sign(envelope.ProtocolIDs{testProtocolID},
-		bitcoin.ScriptItems{testDataItem}, key, nil, false)
+	signature, err := Sign(envelope.Data{envelope.ProtocolIDs{testProtocolID},
+		bitcoin.ScriptItems{testDataItem}}, key, nil, false)
 	if err != nil {
-		t.Fatalf("Failed to sign message : %s", err)
+		t.Fatalf("Failed to sign payload : %s", err)
 	}
 
-	envelopeScriptItems := envelopeV1.Wrap(protocolIDs, scriptItems)
-	script, err := envelopeScriptItems.Script()
+	payload, err := signature.Wrap(envelope.Data{envelope.ProtocolIDs{testProtocolID},
+		bitcoin.ScriptItems{testDataItem}})
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
 
+	envelopeScriptItems := envelopeV1.Wrap(payload)
+	script, _ := envelopeScriptItems.Script()
 	t.Logf("Script : %s", script)
 
 	buf := bytes.NewReader(script)
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(buf)
+	readPayload, err := envelopeV1.Parse(buf)
 	if err != nil {
 		t.Fatalf("Failed to parse envelope : %s", err)
 	}
 
-	if len(readProtocolIDs) != 2 {
-		t.Fatalf("Wrong protocol ID count : got %d, want %d", len(readProtocolIDs), 2)
+	if len(readPayload.ProtocolIDs) != 2 {
+		t.Fatalf("Wrong protocol ID count : got %d, want %d", len(readPayload.ProtocolIDs), 2)
 	}
 
-	if !bytes.Equal(readProtocolIDs[0], ProtocolIDSignedMessages) {
-		t.Fatalf("Wrong first protocol ID : got %x, want %x", readProtocolIDs[0],
+	if !bytes.Equal(readPayload.ProtocolIDs[0], ProtocolIDSignedMessages) {
+		t.Fatalf("Wrong first protocol ID : got %x, want %x", readPayload.ProtocolIDs[0],
 			ProtocolIDSignedMessages)
 	}
 
-	if !bytes.Equal(readProtocolIDs[1], testProtocolID) {
-		t.Fatalf("Wrong second protocol ID : got %x, want %x", readProtocolIDs[0], testProtocolID)
+	if !bytes.Equal(readPayload.ProtocolIDs[1], testProtocolID) {
+		t.Fatalf("Wrong second protocol ID : got %x, want %x", readPayload.ProtocolIDs[0],
+			testProtocolID)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to parse signed message : %s", err)
 	}
@@ -154,25 +168,26 @@ func Test_SignedMessage_WithoutKey(t *testing.T) {
 		t.Logf("Message signature verified")
 	}
 
-	if len(signedProtocolIDs) != 1 {
-		t.Fatalf("Wrong protocol id count : got %d, want %d", len(signedProtocolIDs), 1)
+	if len(signedPayload.ProtocolIDs) != 1 {
+		t.Fatalf("Wrong protocol id count : got %d, want %d", len(signedPayload.ProtocolIDs), 1)
 	}
 
-	if !bytes.Equal(signedProtocolIDs[0], testProtocolID) {
-		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedProtocolIDs[0], testProtocolID)
+	if !bytes.Equal(signedPayload.ProtocolIDs[0], testProtocolID) {
+		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload.ProtocolIDs[0],
+			testProtocolID)
 	}
 
-	if len(signedPayload) != 1 {
-		t.Fatalf("Wrong payload count : got %d, want %d", len(signedPayload), 1)
+	if len(signedPayload.Payload) != 1 {
+		t.Fatalf("Wrong payload count : got %d, want %d", len(signedPayload.Payload), 1)
 	}
 
-	if signedPayload[0].Type != bitcoin.ScriptItemTypePushData {
-		t.Fatalf("Wrong payload type : got %d, want %d", signedPayload[0].Type,
+	if signedPayload.Payload[0].Type != bitcoin.ScriptItemTypePushData {
+		t.Fatalf("Wrong payload type : got %d, want %d", signedPayload.Payload[0].Type,
 			bitcoin.ScriptItemTypePushData)
 	}
 
-	if !bytes.Equal(signedPayload[0].Data, testData) {
-		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload[0].Data, testData)
+	if !bytes.Equal(signedPayload.Payload[0].Data, testData) {
+		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload.Payload[0].Data, testData)
 	}
 }
 
@@ -195,37 +210,44 @@ func Test_SignedMessage_WithHash(t *testing.T) {
 	}
 	t.Logf("Derived public key : %s", derivedPublicKey)
 
-	protocolIDs, scriptItems, err := Sign(envelope.ProtocolIDs{testProtocolID},
-		bitcoin.ScriptItems{testDataItem}, key, &derivationHash, false)
+	signature, err := Sign(envelope.Data{envelope.ProtocolIDs{testProtocolID},
+		bitcoin.ScriptItems{testDataItem}}, key, &derivationHash, false)
 	if err != nil {
-		t.Fatalf("Failed to sign message : %s", err)
+		t.Fatalf("Failed to sign payload : %s", err)
 	}
 
-	envelopeScriptItems := envelopeV1.Wrap(protocolIDs, scriptItems)
+	payload, err := signature.Wrap(envelope.Data{envelope.ProtocolIDs{testProtocolID},
+		bitcoin.ScriptItems{testDataItem}})
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
+
+	envelopeScriptItems := envelopeV1.Wrap(payload)
 	script, err := envelopeScriptItems.Script()
 
 	t.Logf("Script : %s", script)
 
 	buf := bytes.NewReader(script)
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(buf)
+	readPayload, err := envelopeV1.Parse(buf)
 	if err != nil {
 		t.Fatalf("Failed to parse envelope : %s", err)
 	}
 
-	if len(readProtocolIDs) != 2 {
-		t.Fatalf("Wrong protocol ID count : got %d, want %d", len(readProtocolIDs), 2)
+	if len(readPayload.ProtocolIDs) != 2 {
+		t.Fatalf("Wrong protocol ID count : got %d, want %d", len(readPayload.ProtocolIDs), 2)
 	}
 
-	if !bytes.Equal(readProtocolIDs[0], ProtocolIDSignedMessages) {
-		t.Fatalf("Wrong first protocol ID : got %x, want %x", readProtocolIDs[0],
+	if !bytes.Equal(readPayload.ProtocolIDs[0], ProtocolIDSignedMessages) {
+		t.Fatalf("Wrong first protocol ID : got %x, want %x", readPayload.ProtocolIDs[0],
 			ProtocolIDSignedMessages)
 	}
 
-	if !bytes.Equal(readProtocolIDs[1], testProtocolID) {
-		t.Fatalf("Wrong second protocol ID : got %x, want %x", readProtocolIDs[0], testProtocolID)
+	if !bytes.Equal(readPayload.ProtocolIDs[1], testProtocolID) {
+		t.Fatalf("Wrong second protocol ID : got %x, want %x", readPayload.ProtocolIDs[0],
+			testProtocolID)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to parse signed message : %s", err)
 	}
@@ -261,24 +283,25 @@ func Test_SignedMessage_WithHash(t *testing.T) {
 		t.Logf("Message signature verified")
 	}
 
-	if len(signedProtocolIDs) != 1 {
-		t.Fatalf("Wrong protocol id count : got %d, want %d", len(signedProtocolIDs), 1)
+	if len(signedPayload.ProtocolIDs) != 1 {
+		t.Fatalf("Wrong protocol id count : got %d, want %d", len(signedPayload.ProtocolIDs), 1)
 	}
 
-	if !bytes.Equal(signedProtocolIDs[0], testProtocolID) {
-		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedProtocolIDs[0], testProtocolID)
+	if !bytes.Equal(signedPayload.ProtocolIDs[0], testProtocolID) {
+		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload.ProtocolIDs[0],
+			testProtocolID)
 	}
 
-	if len(signedPayload) != 1 {
-		t.Fatalf("Wrong payload count : got %d, want %d", len(signedPayload), 1)
+	if len(signedPayload.Payload) != 1 {
+		t.Fatalf("Wrong payload count : got %d, want %d", len(signedPayload.Payload), 1)
 	}
 
-	if signedPayload[0].Type != bitcoin.ScriptItemTypePushData {
-		t.Fatalf("Wrong payload type : got %d, want %d", signedPayload[0].Type,
+	if signedPayload.Payload[0].Type != bitcoin.ScriptItemTypePushData {
+		t.Fatalf("Wrong payload type : got %d, want %d", signedPayload.Payload[0].Type,
 			bitcoin.ScriptItemTypePushData)
 	}
 
-	if !bytes.Equal(signedPayload[0].Data, testData) {
-		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload[0].Data, testData)
+	if !bytes.Equal(signedPayload.Payload[0].Data, testData) {
+		t.Errorf("Wrong protocol id : got 0x%x, want 0x%x", signedPayload.Payload[0].Data, testData)
 	}
 }

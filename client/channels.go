@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/tokenized/channels"
@@ -27,7 +29,12 @@ type Channel struct {
 	// Hash used to derive channel's base key
 	hash bitcoin.Hash32
 
+	// Incoming represents the local identity and the peer channels that messages are received on
+	// and those messages.
 	Incoming *ChannelCommunication
+
+	// Outgoing represents the other identity and the peers channels that messages are sent to and
+	// those messages.
 	Outgoing *ChannelCommunication
 
 	lock sync.Mutex
@@ -46,8 +53,11 @@ type Channels []*Channel
 
 func SupportedProtocols() envelope.ProtocolIDs {
 	return envelope.ProtocolIDs{
-		channels.ProtocolIDChannels,
+		channels.ProtocolIDResponse,
+		channels.ProtocolIDReject,
+		channels.ProtocolIDSignedMessages,
 		channels.ProtocolIDRelationships,
+		// channels.ProtocolIDMerkleProof,
 		// channels.ProtocolIDInvoices,
 		// channels.ProtocolIDPeerChannels,
 	}
@@ -130,6 +140,8 @@ func (c *ChannelCommunication) SetEntity(entity *channels.Entity) error {
 	defer c.lock.Unlock()
 
 	if c.Entity != nil {
+		js, _ := json.MarshalIndent(c.Entity, "", "  ")
+		fmt.Printf("Entity : %s\n", js)
 		return ErrAlreadyHaveEntity
 	}
 
@@ -154,17 +166,17 @@ func (c *ChannelCommunication) GetUnprocessedMessages(ctx context.Context) (Mess
 	return result, nil
 }
 
-func (c *ChannelCommunication) AddMessage(ctx context.Context, hash bitcoin.Hash32,
-	protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems) error {
+func (c *ChannelCommunication) AddMessage(ctx context.Context, payload bitcoin.Script) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	now := channels.Now()
 	message := &Message{
-		ProtocolIDs: protocolIDs,
-		Payload:     payload,
-		Received:    &now,
+		Payload:  payload,
+		Received: &now,
 	}
+
+	hash := bitcoin.Hash32(sha256.Sum256(payload))
 
 	c.Messages = append(c.Messages, message)
 	c.MessageMap[hash] = len(c.Messages)
@@ -174,10 +186,9 @@ func (c *ChannelCommunication) AddMessage(ctx context.Context, hash bitcoin.Hash
 }
 
 func SendMessage(ctx context.Context, factory *peer_channels.Factory,
-	peerChannels channels.PeerChannels, protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (*bitcoin.Hash32, error) {
+	peerChannels channels.PeerChannels, payload envelope.Data) (*bitcoin.Hash32, error) {
 
-	scriptItems := envelopeV1.Wrap(protocolIDs, payload)
+	scriptItems := envelopeV1.Wrap(payload)
 	script, err := scriptItems.Script()
 	if err != nil {
 		return nil, errors.Wrap(err, "script")
@@ -226,7 +237,7 @@ func (c *Channel) Hash() bitcoin.Hash32 {
 	return c.hash
 }
 
-func (c *Channel) Reject(ctx context.Context, message peer_channels.Message,
+func (c *Channel) Reject(ctx context.Context, message *peer_channels.Message,
 	reject *channels.Reject) error {
 
 	reject.MessageHash = message.Hash()
@@ -240,103 +251,91 @@ func (c *Channel) Reject(ctx context.Context, message peer_channels.Message,
 		logger.String("reject_code", reject.CodeToString()),
 	}, "Adding reject")
 
-	protocolIDs, payload, err := channels.WriteChannels(reject, nil, nil)
+	payload, err := reject.Write()
 	if err != nil {
 		return errors.Wrap(err, "write")
 	}
 
-	scriptItems := envelopeV1.Wrap(protocolIDs, payload)
-	hasher := sha256.New()
-	scriptItems.Write(hasher)
-	hash, _ := bitcoin.NewHash32(hasher.Sum(nil))
+	scriptItems := envelopeV1.Wrap(payload)
+	script, err := scriptItems.Script()
+	if err != nil {
+		return errors.Wrap(err, "script")
+	}
 
-	return c.Outgoing.AddMessage(ctx, *hash, protocolIDs, payload)
+	// TODO Figure out how this will get signed. --ce
+	return c.Outgoing.AddMessage(ctx, script)
 }
 
-func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Message,
-	protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems) error {
+func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Message) error {
 
-	fullProtocolIDs := protocolIDs
-	fullPayload := payload
-
-	// Check signatures
-	var signature *channels.Signature
-	var err error
-	signature, protocolIDs, payload, err = channels.ParseSigned(protocolIDs, payload)
-	if err != nil {
-		if err := c.Reject(ctx, message, &channels.Reject{
-			Reason:     channels.RejectReasonInvalid,
-			ProtocolID: channels.ProtocolIDSignedMessages,
-		}); err != nil {
-			return errors.Wrap(err, "parse signature")
-		}
-		return nil
+	if err := c.Incoming.AddMessage(ctx, bitcoin.Script(message.Payload)); err != nil {
+		return errors.Wrap(err, "add message")
 	}
-	if signature == nil {
+
+	wMessage, err := channels.Unwrap(bitcoin.Script(message.Payload))
+	if err != nil {
+		return errors.Wrap(err, "unwrap")
+	}
+
+	if wMessage.Signature == nil {
 		if err := c.Reject(ctx, message, &channels.Reject{
-			Reason:     channels.RejectReasonInvalid,
-			ProtocolID: channels.ProtocolIDSignedMessages,
-			Code:       channels.SignedRejectCodeSignatureRequired,
+			Reason:           channels.RejectReasonInvalid,
+			RejectProtocolID: channels.ProtocolIDSignedMessages,
+			Code:             channels.SignedRejectCodeSignatureRequired,
 		}); err != nil {
 			return errors.Wrap(err, "no signature: reject")
 		}
 		return nil
 	}
 
-	if len(protocolIDs) == 0 {
-		return errors.New("Not Enough Protocol IDs")
+	if wMessage.Response != nil {
+		fmt.Printf("Response to : %s\n", wMessage.Response.MessageHash)
 	}
 
 	publicKey := c.Outgoing.GetPublicKey()
 
 	var entity *channels.Entity
-	msg, err := channels.ParseRelationship(protocolIDs, payload)
-	if err != nil {
-		return errors.Wrap(err, "parse")
-	}
-	if msg != nil {
-		switch message := msg.(type) {
-		case *channels.RelationshipInitiation:
-			relationship := channels.Entity(*message)
-			entity = &relationship
-		default:
-			return channels.ErrUnsupportedRelationshipsMessage
-		}
-
-		if publicKey == nil && entity != nil {
+	switch msg := wMessage.Message.(type) {
+	case *channels.RelationshipInitiation:
+		fmt.Printf("Is Relationship\n")
+		relationship := channels.Entity(*msg)
+		entity = &relationship
+		if publicKey == nil {
 			// Use newly established relationship key
 			publicKey = &entity.PublicKey
 		}
+	default:
+		return channels.ErrUnsupportedRelationshipsMessage
 	}
 
 	if publicKey == nil {
 		if err := c.Reject(ctx, message, &channels.Reject{
-			Reason:     channels.RejectReasonInvalid,
-			ProtocolID: channels.ProtocolIDRelationships,
-			Code:       channels.RelationshipsRejectCodeNotInitiated,
+			Reason:           channels.RejectReasonInvalid,
+			RejectProtocolID: channels.ProtocolIDRelationships,
+			Code:             channels.RelationshipsRejectCodeNotInitiated,
 		}); err != nil {
 			return errors.Wrap(err, "no signature: reject")
 		}
 		return nil
 	}
 
-	if signature.PublicKey != nil {
-		if !signature.PublicKey.Equal(*publicKey) {
+	if wMessage.Signature.PublicKey != nil {
+		if !wMessage.Signature.PublicKey.Equal(*publicKey) {
 			return ErrWrongPublicKey
 		}
 	} else {
-		signature.SetPublicKey(publicKey)
+		wMessage.Signature.SetPublicKey(publicKey)
 	}
 
-	if err := signature.Verify(); err != nil {
+	if err := wMessage.Signature.Verify(); err != nil {
 		var code uint32
 		if errors.Cause(err) == channels.ErrInvalidSignature {
 			code = channels.SignedRejectCodeInvalidSignature
 		}
 		if err := c.Reject(ctx, message, &channels.Reject{
-			Reason:     channels.RejectReasonInvalid,
-			ProtocolID: channels.ProtocolIDSignedMessages,
-			Code:       code,
+			Reason:           channels.RejectReasonInvalid,
+			RejectProtocolID: channels.ProtocolIDSignedMessages,
+			Code:             code,
 		}); err != nil {
 			return errors.Wrap(err, "reject")
 		}
@@ -344,13 +343,14 @@ func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Mess
 	}
 
 	if !c.IsInitiation() && entity != nil {
-		if err := c.Incoming.SetEntity(entity); err != nil {
+		if err := c.Outgoing.SetEntity(entity); err != nil {
 			// TODO Allow entity updates --ce
 			if errors.Cause(err) == ErrAlreadyHaveEntity {
+				fmt.Printf("Already have entity\n")
 				if err := c.Reject(ctx, message, &channels.Reject{
-					Reason:     channels.RejectReasonInvalid,
-					ProtocolID: channels.ProtocolIDRelationships,
-					Code:       channels.RelationshipsRejectCodeAlreadyInitiated,
+					Reason:           channels.RejectReasonInvalid,
+					RejectProtocolID: channels.ProtocolIDRelationships,
+					Code:             channels.RelationshipsRejectCodeAlreadyInitiated,
 				}); err != nil {
 					return errors.Wrap(err, "reject")
 				}
@@ -360,5 +360,5 @@ func (c *Channel) ProcessMessage(ctx context.Context, message peer_channels.Mess
 		}
 	}
 
-	return c.Incoming.AddMessage(ctx, message.Hash(), fullProtocolIDs, fullPayload)
+	return nil
 }

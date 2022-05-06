@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	SignedMessagesVersion = uint8(0)
+
 	// SignedRejectCodeSignatureRequired is a code specific to the signature protocol that is placed
 	// in a Reject message to signify that a message is considered invalid if it is not signed.
 	SignedRejectCodeSignatureRequired = uint32(1)
@@ -29,13 +31,10 @@ const (
 
 var (
 	ProtocolIDSignedMessages = envelope.ProtocolID("S") // Protocol ID for signed messages
-	SignedMessagesVersion    = uint8(0)
 
-	ErrNotSignedMessage                 = errors.New("Not Signed Message")
-	ErrUnsupportedSignedMessagesVersion = errors.New("Unsupported Signed Messages Version")
-	ErrPublicKeyMissing                 = errors.New("Public Key Missing")
-	ErrHashMissing                      = errors.New("Hash Missing")
-	ErrInvalidSignature                 = errors.New("Invalid Signature")
+	ErrPublicKeyMissing = errors.New("Public Key Missing")
+	ErrHashMissing      = errors.New("Hash Missing")
+	ErrInvalidSignature = errors.New("Invalid Signature")
 )
 
 // SignedMessage is a message signed by a key.
@@ -48,46 +47,64 @@ type Signature struct {
 	hash           *bitcoin.Hash32
 }
 
+func (*Signature) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDSignedMessages
+}
+
+func (s *Signature) Wrap(payload envelope.Data) (envelope.Data, error) {
+	// Version
+	scriptItems := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(SignedMessagesVersion))}
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(s)
+	if err != nil {
+		return payload, errors.Wrap(err, "marshal")
+	}
+	scriptItems = append(scriptItems, msgScriptItems...)
+
+	payload.ProtocolIDs = append(envelope.ProtocolIDs{ProtocolIDSignedMessages},
+		payload.ProtocolIDs...)
+	payload.Payload = append(scriptItems, payload.Payload...)
+
+	return payload, nil
+}
+
 // Sign adds the SignedMessage protocol to the provided bitcoin script with the signature of the
-// script and the key is specified.
-func Sign(protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems, key bitcoin.Key,
-	derivationHash *bitcoin.Hash32,
-	includeKey bool) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
+// script and the key if specified.
+func Sign(payload envelope.Data, key bitcoin.Key, derivationHash *bitcoin.Hash32,
+	includeKey bool) (*Signature, error) {
 
 	hasher := sha256.New()
-	for _, protocolID := range protocolIDs {
+	for _, protocolID := range payload.ProtocolIDs {
 		hasher.Write(protocolID)
 	}
 
-	if err := payload.Write(hasher); err != nil {
-		return nil, nil, errors.Wrap(err, "script")
+	if err := payload.Payload.Write(hasher); err != nil {
+		return nil, errors.Wrap(err, "script")
 	}
 
 	hash, err := bitcoin.NewHash32(hasher.Sum(nil))
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "new hash")
+		return nil, errors.Wrap(err, "new hash")
 	}
 
 	var signature bitcoin.Signature
 	if derivationHash != nil {
 		derivedKey, err := key.AddHash(*derivationHash)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "derive key")
+			return nil, errors.Wrap(err, "derive key")
 		}
 
 		signature, err = derivedKey.Sign(*hash)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "sign")
+			return nil, errors.Wrap(err, "sign")
 		}
 	} else {
 		signature, err = key.Sign(*hash)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "sign")
+			return nil, errors.Wrap(err, "sign")
 		}
 	}
-
-	// Version
-	result := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(SignedMessagesVersion))}
 
 	message := &Signature{
 		Signature:      signature,
@@ -99,61 +116,52 @@ func Sign(protocolIDs envelope.ProtocolIDs, payload bitcoin.ScriptItems, key bit
 		message.PublicKey = &publicKey
 	}
 
-	signatureScriptItems, err := bsor.Marshal(message)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
-	}
-	result = append(result, signatureScriptItems...)
-
-	return append(envelope.ProtocolIDs{ProtocolIDSignedMessages}, protocolIDs...),
-		append(result, payload...), nil
+	return message, nil
 }
 
 // ParseSigned parses the signature and public key (if provided).
-func ParseSigned(protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (*Signature, envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
-
-	if len(protocolIDs) == 0 || !bytes.Equal(protocolIDs[0], ProtocolIDSignedMessages) {
-		return nil, protocolIDs, payload, nil
+func ParseSigned(payload envelope.Data) (*Signature, envelope.Data, error) {
+	if len(payload.ProtocolIDs) == 0 ||
+		!bytes.Equal(payload.ProtocolIDs[0], ProtocolIDSignedMessages) {
+		return nil, payload, nil
 	}
-	protocolIDs = protocolIDs[1:]
+	payload.ProtocolIDs = payload.ProtocolIDs[1:]
 
-	if len(payload) < 2 {
-		return nil, nil, nil, errors.Wrapf(ErrInvalidChannels, "not enough signature push ops: %d",
-			len(payload))
+	if len(payload.Payload) < 2 {
+		return nil, payload, errors.Wrapf(ErrInvalidMessage, "not enough signature push ops: %d",
+			len(payload.Payload))
 	}
 
-	version, err := bitcoin.ScriptNumberValue(payload[0])
+	version, err := bitcoin.ScriptNumberValue(payload.Payload[0])
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "version")
+		return nil, payload, errors.Wrap(err, "version")
 	}
 	if version != 0 {
-		return nil, nil, nil, errors.Wrap(ErrUnsupportedSignedMessagesVersion,
-			fmt.Sprintf("%d", version))
+		return nil, payload, errors.Wrap(ErrUnsupportedVersion, fmt.Sprintf("signed: %d", version))
 	}
-	payload = payload[1:]
+	payload.Payload = payload.Payload[1:]
 
 	signature := &Signature{}
-	payload, err = bsor.Unmarshal(payload, signature)
+	payload.Payload, err = bsor.Unmarshal(payload.Payload, signature)
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "unmarshal")
+		return nil, payload, errors.Wrap(err, "unmarshal")
 	}
 
 	hasher := sha256.New()
-	for _, protocolID := range protocolIDs {
+	for _, protocolID := range payload.ProtocolIDs {
 		hasher.Write(protocolID)
 	}
-	if err := payload.Write(hasher); err != nil {
-		return nil, nil, nil, errors.Wrap(err, "hash")
+	if err := payload.Payload.Write(hasher); err != nil {
+		return nil, payload, errors.Wrap(err, "hash")
 	}
 
 	hash, err := bitcoin.NewHash32(hasher.Sum(nil))
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "new hash")
+		return nil, payload, errors.Wrap(err, "new hash")
 	}
 	signature.hash = hash
 
-	return signature, protocolIDs, payload, nil
+	return signature, payload, nil
 }
 
 // GetPublicKey calculates the public key if there is a derivation hash or just returns the included
@@ -209,7 +217,7 @@ func (m Signature) Verify() error {
 	return nil
 }
 
-func SigneRejectCodeToString(code uint32) string {
+func SignedRejectCodeToString(code uint32) string {
 	switch code {
 	case SignedRejectCodeSignatureRequired:
 		return "signature_required"

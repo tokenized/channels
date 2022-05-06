@@ -20,14 +20,22 @@ func Test_PeerChannels_Create(t *testing.T) {
 		Type: PeerChannelTypePublic,
 	}
 
-	protocolIDs, scriptItems, err := WritePeerChannel(msg)
+	payload, err := msg.Write()
 	if err != nil {
 		t.Fatalf("Failed to write peer channels : %s", err)
 	}
 
-	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, nil, true)
+	signature, err := Sign(payload, key, nil, true)
+	if err != nil {
+		t.Fatalf("Failed to sign payload : %s", err)
+	}
 
-	envelopeScriptItems := envelopeV1.Wrap(signedProtocolIDs, signedScriptItems)
+	signedPayload, err := signature.Wrap(payload)
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
+
+	envelopeScriptItems := envelopeV1.Wrap(signedPayload)
 
 	script, err := envelopeScriptItems.Script()
 	if err != nil {
@@ -36,12 +44,12 @@ func Test_PeerChannels_Create(t *testing.T) {
 
 	t.Logf("Script (%d bytes) : %s", len(script), script)
 
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
+	readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
 	if err != nil {
 		t.Fatalf("Failed to parse script : %s", err)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to read signed message : %s", err)
 	}
@@ -52,7 +60,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParsePeerChannel(signedProtocolIDs, signedPayload)
+	readMsg, err := ParsePeerChannel(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}
@@ -76,15 +84,22 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		ID: uuid.New(),
 	}
 
-	protocolIDs, scriptItems, err := WritePeerChannel(msg)
+	payload, err := msg.Write()
 	if err != nil {
 		t.Fatalf("Failed to write peer channels : %s", err)
 	}
 
-	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, nil, true)
+	signature, err := Sign(payload, key, nil, true)
+	if err != nil {
+		t.Fatalf("Failed to sign payload : %s", err)
+	}
 
-	envelopeScriptItems := envelopeV1.Wrap(signedProtocolIDs, signedScriptItems)
+	signedPayload, err := signature.Wrap(payload)
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
 
+	envelopeScriptItems := envelopeV1.Wrap(signedPayload)
 	script, err := envelopeScriptItems.Script()
 	if err != nil {
 		t.Fatalf("Failed to create script : %s", err)
@@ -92,12 +107,12 @@ func Test_PeerChannels_Delete(t *testing.T) {
 
 	t.Logf("Script (%d bytes) : %s", len(script), script)
 
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
+	readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
 	if err != nil {
 		t.Fatalf("Failed to parse script : %s", err)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to read signed message : %s", err)
 	}
@@ -108,7 +123,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParsePeerChannel(signedProtocolIDs, signedPayload)
+	readMsg, err := ParsePeerChannel(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}

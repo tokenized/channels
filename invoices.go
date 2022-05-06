@@ -3,7 +3,6 @@ package channels
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -19,9 +18,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	ProtocolIDInvoices = envelope.ProtocolID("I") // Protocol ID for invoice negotiation
-	InvoicesVersion    = uint8(0)
+const (
+	InvoicesVersion = uint8(0)
 
 	InvoicesMessageTypeInvalid       = InvoicesMessageType(0)
 	InvoicesMessageTypeRequestMenu   = InvoicesMessageType(1)
@@ -39,8 +37,11 @@ var (
 	PeriodTypeWeek        = PeriodType(5)
 	PeriodTypeMonth       = PeriodType(6)
 	PeriodTypeYear        = PeriodType(7)
+)
 
-	ErrUnsupportedInvoicesVersion = errors.New("Unsupported Invoices Version")
+var (
+	ProtocolIDInvoices = envelope.ProtocolID("I") // Protocol ID for invoice negotiation
+
 	ErrUnsupportedInvoicesMessage = errors.New("Unsupported Invoices Message")
 	ErrInvoiceMissing             = errors.New("Invoice Missing")
 )
@@ -81,10 +82,52 @@ type PeriodType uint8
 type RequestMenu struct {
 }
 
+func (*RequestMenu) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDRelationships
+}
+
+func (m *RequestMenu) Write() (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeRequestMenu)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.ProtocolIDs{ProtocolIDInvoices}, payload, nil
+}
+
 // Menu represents a set of items available to include in an invoice.
 type Menu struct {
 	Items  Items     `bsor:"1" json:"items"`
 	Vendor *Identity `bsor:"2" json:"vendor,omitempty"`
+}
+
+func (*Menu) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDInvoices
+}
+
+func (m *Menu) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeMenu)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
 // PurchaseOrder contains items the buyer wishes to purchase.
@@ -92,6 +135,27 @@ type Menu struct {
 type PurchaseOrder struct {
 	Items InvoiceItems `bsor:"1" json:"items"`
 	Notes *string      `bsor:"2" json:"notes,omitempty"`
+}
+
+func (*PurchaseOrder) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDInvoices
+}
+
+func (m *PurchaseOrder) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypePurchaseOrder)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
 // Invoice is a message created by the vendor representing an approved set of items to buy. This is
@@ -107,6 +171,27 @@ type Invoice struct {
 	Notes      *string      `bsor:"2" json:"notes,omitempty"`
 	Timestamp  Timestamp    `bsor:"3" json:"timestamp"`
 	Expiration Timestamp    `bsor:"4" json:"expiration"`
+}
+
+func (*Invoice) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDInvoices
+}
+
+func (m *Invoice) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeInvoice)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
 type Timestamp uint64 // Seconds since UNIX epoch
@@ -125,10 +210,52 @@ type InvoiceTx struct {
 	Tx ExpandedTx `bsor:"1" json:"tx"`
 }
 
+func (*InvoiceTx) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDInvoices
+}
+
+func (m *InvoiceTx) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeInvoiceTx)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
+}
+
 // InvoicePayment is a payment transaction that embeds the approved invoice.
 type InvoicePayment struct {
 	Tx   ExpandedTx             `bsor:"1" json:"tx"`
 	Fees merchant_api.FeeQuotes `bsor:"3" json:"fees"` // tx fee requirements
+}
+
+func (*InvoicePayment) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDInvoices
+}
+
+func (m *InvoicePayment) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypePayment)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
 // ExpandedTx is a Bitcoin transaction with ancestor information.
@@ -203,59 +330,32 @@ type InvoiceItem struct {
 
 type InvoiceItems []*InvoiceItem
 
-func WriteInvoice(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
-	msgType := InvoicesMessageTypeFor(message)
-	if msgType == InvoicesMessageTypeInvalid {
-		return nil, nil, errors.Wrap(ErrUnsupportedInvoicesMessage,
-			reflect.TypeOf(message).Name())
-	}
-
-	var scriptItems bitcoin.ScriptItems
-
-	// Version
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(InvoicesVersion)))
-
-	// Message type
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
-
-	// Message
-	msgScriptItems, err := bsor.Marshal(message)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
-	}
-	scriptItems = append(scriptItems, msgScriptItems...)
-
-	return envelope.ProtocolIDs{ProtocolIDInvoices}, scriptItems, nil
-}
-
-func ParseInvoice(protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (interface{}, error) {
-
-	if len(protocolIDs) == 0 {
+func ParseInvoice(payload envelope.Data) (ChannelsMessage, error) {
+	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
 
-	if !bytes.Equal(protocolIDs[0], ProtocolIDInvoices) {
+	if !bytes.Equal(payload.ProtocolIDs[0], ProtocolIDInvoices) {
 		return nil, nil
 	}
 
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrInvalidChannels, "invoices can't wrap")
+	if len(payload.ProtocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrInvalidMessage, "invoices can't wrap")
 	}
 
-	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrInvalidChannels, "payload empty")
+	if len(payload.Payload) == 0 {
+		return nil, errors.Wrapf(ErrInvalidMessage, "payload empty")
 	}
 
-	version, err := bitcoin.ScriptNumberValue(payload[0])
+	version, err := bitcoin.ScriptNumberValue(payload.Payload[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "version")
 	}
 	if version != 0 {
-		return nil, errors.Wrap(ErrUnsupportedInvoicesVersion, fmt.Sprintf("%d", version))
+		return nil, errors.Wrap(ErrUnsupportedVersion, fmt.Sprintf("invoices %d", version))
 	}
 
-	messageType, err := bitcoin.ScriptNumberValue(payload[1])
+	messageType, err := bitcoin.ScriptNumberValue(payload.Payload[1])
 	if err != nil {
 		return nil, errors.Wrap(err, "message type")
 	}
@@ -266,7 +366,7 @@ func ParseInvoice(protocolIDs envelope.ProtocolIDs,
 			fmt.Sprintf("%d", InvoicesMessageType(messageType)))
 	}
 
-	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
+	if _, err := bsor.Unmarshal(payload.Payload[2:], result); err != nil {
 		return nil, errors.Wrap(err, "unmarshal")
 	}
 
@@ -276,16 +376,17 @@ func ParseInvoice(protocolIDs envelope.ProtocolIDs,
 // ExtractInvoice finds the Invoice message embedded in the tx.
 func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
 	for _, txout := range tx.TxOut {
-		protocolIDs, payload, err := envelopeV1.Parse(bytes.NewReader(txout.LockingScript))
+		payload, err := envelopeV1.Parse(bytes.NewReader(txout.LockingScript))
 		if err != nil {
 			continue
 		}
 
-		if len(protocolIDs) != 1 || !bytes.Equal(ProtocolIDInvoices, protocolIDs[0]) {
+		if len(payload.ProtocolIDs) != 1 ||
+			!bytes.Equal(ProtocolIDInvoices, payload.ProtocolIDs[0]) {
 			continue
 		}
 
-		msg, err := ParseInvoice(protocolIDs, payload)
+		msg, err := ParseInvoice(payload)
 		if err != nil {
 			continue
 		}
@@ -301,7 +402,7 @@ func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
 	return nil, ErrInvoiceMissing
 }
 
-func InvoicesMessageForType(messageType InvoicesMessageType) interface{} {
+func InvoicesMessageForType(messageType InvoicesMessageType) ChannelsMessage {
 	switch InvoicesMessageType(messageType) {
 	case InvoicesMessageTypeRequestMenu:
 		return &RequestMenu{}
@@ -322,7 +423,7 @@ func InvoicesMessageForType(messageType InvoicesMessageType) interface{} {
 	}
 }
 
-func InvoicesMessageTypeFor(message interface{}) InvoicesMessageType {
+func InvoicesMessageTypeFor(message ChannelsMessage) InvoicesMessageType {
 	switch message.(type) {
 	case *RequestMenu:
 		return InvoicesMessageTypeRequestMenu

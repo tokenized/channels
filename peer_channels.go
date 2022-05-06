@@ -3,7 +3,6 @@ package channels
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
@@ -35,55 +34,70 @@ type CreateChannel struct {
 	Type PeerChannelType `bsor:"1" json:"type"`
 }
 
+func (*CreateChannel) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDPeerChannels
+}
+
+func (m *CreateChannel) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(PeerChannelsVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeCreateChannel)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDPeerChannels}, payload}, nil
+}
+
 type DeleteChannel struct {
 	ID uuid.UUID `bsor:"1" json:"id"`
 }
 
-func WritePeerChannel(message interface{}) (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
-	msgType := PeerChannelsMessageTypeFor(message)
-	if msgType == PeerChannelsMessageTypeInvalid {
-		return nil, nil, errors.Wrap(ErrUnsupportedPeerChannelsMessage,
-			reflect.TypeOf(message).Name())
-	}
-
-	var scriptItems bitcoin.ScriptItems
-
-	// Version
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(PeerChannelsVersion)))
-
-	// Message type
-	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItem(int64(msgType)))
-
-	// Message
-	msgScriptItems, err := bsor.Marshal(message)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
-	}
-	scriptItems = append(scriptItems, msgScriptItems...)
-
-	return envelope.ProtocolIDs{ProtocolIDPeerChannels}, scriptItems, nil
+func (*DeleteChannel) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDPeerChannels
 }
 
-func ParsePeerChannel(protocolIDs envelope.ProtocolIDs,
-	payload bitcoin.ScriptItems) (interface{}, error) {
+func (m *DeleteChannel) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(PeerChannelsVersion))}
 
-	if len(protocolIDs) == 0 {
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeDeleteChannel)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDPeerChannels}, payload}, nil
+}
+
+func ParsePeerChannel(payload envelope.Data) (ChannelsMessage, error) {
+	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
 
-	if !bytes.Equal(protocolIDs[0], ProtocolIDPeerChannels) {
+	if !bytes.Equal(payload.ProtocolIDs[0], ProtocolIDPeerChannels) {
 		return nil, nil
 	}
 
-	if len(protocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrInvalidChannels, "peer channels can't wrap")
+	if len(payload.ProtocolIDs) != 1 {
+		return nil, errors.Wrapf(ErrInvalidMessage, "peer channels can't wrap")
 	}
 
-	if len(payload) == 0 {
-		return nil, errors.Wrapf(ErrInvalidChannels, "payload empty")
+	if len(payload.Payload) == 0 {
+		return nil, errors.Wrapf(ErrInvalidMessage, "payload empty")
 	}
 
-	version, err := bitcoin.ScriptNumberValue(payload[0])
+	version, err := bitcoin.ScriptNumberValue(payload.Payload[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "version")
 	}
@@ -91,7 +105,7 @@ func ParsePeerChannel(protocolIDs envelope.ProtocolIDs,
 		return nil, errors.Wrap(ErrUnsupportedPeerChannelsVersion, fmt.Sprintf("%d", version))
 	}
 
-	messageType, err := bitcoin.ScriptNumberValue(payload[1])
+	messageType, err := bitcoin.ScriptNumberValue(payload.Payload[1])
 	if err != nil {
 		return nil, errors.Wrap(err, "message type")
 	}
@@ -102,14 +116,14 @@ func ParsePeerChannel(protocolIDs envelope.ProtocolIDs,
 			fmt.Sprintf("%d", PeerChannelsMessageType(messageType)))
 	}
 
-	if _, err := bsor.Unmarshal(payload[2:], result); err != nil {
+	if _, err := bsor.Unmarshal(payload.Payload[2:], result); err != nil {
 		return nil, errors.Wrap(err, "unmarshal")
 	}
 
 	return result, nil
 }
 
-func PeerChannelsMessageForType(messageType PeerChannelsMessageType) interface{} {
+func PeerChannelsMessageForType(messageType PeerChannelsMessageType) ChannelsMessage {
 	switch messageType {
 	case PeerChannelsMessageTypeCreateChannel:
 		return &CreateChannel{}
@@ -122,7 +136,7 @@ func PeerChannelsMessageForType(messageType PeerChannelsMessageType) interface{}
 	}
 }
 
-func PeerChannelsMessageTypeFor(message interface{}) PeerChannelsMessageType {
+func PeerChannelsMessageTypeFor(message ChannelsMessage) PeerChannelsMessageType {
 	switch message.(type) {
 	case *CreateChannel:
 		return PeerChannelsMessageTypeCreateChannel

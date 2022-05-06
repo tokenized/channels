@@ -56,15 +56,22 @@ func Test_Invoices_Menu(t *testing.T) {
 		},
 	}
 
-	protocolIDs, scriptItems, err := WriteInvoice(msg)
+	payload, err := msg.Write()
 	if err != nil {
 		t.Fatalf("Failed to write invoice : %s", err)
 	}
 
-	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, nil, true)
+	signature, err := Sign(payload, key, nil, true)
+	if err != nil {
+		t.Fatalf("Failed to sign payload : %s", err)
+	}
 
-	envelopeScriptItems := envelopeV1.Wrap(signedProtocolIDs, signedScriptItems)
+	signedPayload, err := signature.Wrap(payload)
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
 
+	envelopeScriptItems := envelopeV1.Wrap(signedPayload)
 	script, err := envelopeScriptItems.Script()
 	if err != nil {
 		t.Fatalf("Failed to create script : %s", err)
@@ -72,12 +79,12 @@ func Test_Invoices_Menu(t *testing.T) {
 
 	t.Logf("Script (%d bytes) : %s", len(script), script)
 
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
+	readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
 	if err != nil {
 		t.Fatalf("Failed to parse script : %s", err)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to read signed message : %s", err)
 	}
@@ -88,7 +95,7 @@ func Test_Invoices_Menu(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParseInvoice(signedProtocolIDs, signedPayload)
+	readMsg, err := ParseInvoice(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read invoice : %s", err)
 	}
@@ -151,12 +158,12 @@ func Test_Invoices_Invoice(t *testing.T) {
 		},
 	}
 
-	dataProtocolIDs, dataScriptItems, err := WriteInvoice(data)
+	dataPayload, err := data.Write()
 	if err != nil {
 		t.Fatalf("Failed to write invoice data : %s", err)
 	}
 
-	envelopeDataScriptItems := envelopeV1.Wrap(dataProtocolIDs, dataScriptItems)
+	envelopeDataScriptItems := envelopeV1.Wrap(dataPayload)
 	dataScript, err := envelopeDataScriptItems.Script()
 	if err != nil {
 		t.Fatalf("Failed to create data script : %s", err)
@@ -173,15 +180,22 @@ func Test_Invoices_Invoice(t *testing.T) {
 		},
 	}
 
-	protocolIDs, scriptItems, err := WriteInvoice(msg)
+	payload, err := msg.Write()
 	if err != nil {
 		t.Fatalf("Failed to write invoice : %s", err)
 	}
 
-	signedProtocolIDs, signedScriptItems, err := Sign(protocolIDs, scriptItems, key, nil, true)
+	signature, err := Sign(payload, key, nil, true)
+	if err != nil {
+		t.Fatalf("Failed to sign payload : %s", err)
+	}
 
-	envelopeScriptItems := envelopeV1.Wrap(signedProtocolIDs, signedScriptItems)
+	signedPayload, err := signature.Wrap(payload)
+	if err != nil {
+		t.Fatalf("Failed to create signed payload : %s", err)
+	}
 
+	envelopeScriptItems := envelopeV1.Wrap(signedPayload)
 	script, err := envelopeScriptItems.Script()
 	if err != nil {
 		t.Fatalf("Failed to create script : %s", err)
@@ -189,12 +203,12 @@ func Test_Invoices_Invoice(t *testing.T) {
 
 	t.Logf("Invoice Script (%d bytes) : %s", len(script), script)
 
-	readProtocolIDs, readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
+	readPayload, err := envelopeV1.Parse(bytes.NewReader(script))
 	if err != nil {
 		t.Fatalf("Failed to parse script : %s", err)
 	}
 
-	signed, signedProtocolIDs, signedPayload, err := ParseSigned(readProtocolIDs, readPayload)
+	signed, signedPayload, err := ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to read signed message : %s", err)
 	}
@@ -205,7 +219,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParseInvoice(signedProtocolIDs, signedPayload)
+	readMsg, err := ParseInvoice(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read invoice : %s", err)
 	}
