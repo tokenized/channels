@@ -27,6 +27,7 @@ const (
 	InvoicesMessageTypeInvoice       = InvoicesMessageType(4)
 	InvoicesMessageTypeInvoiceTx     = InvoicesMessageType(5)
 	InvoicesMessageTypePayment       = InvoicesMessageType(6)
+	InvoicesMessageTypePaymentAccept = InvoicesMessageType(7)
 
 	PeriodTypeUnspecified = PeriodType(0)
 	PeriodTypeSecond      = PeriodType(1)
@@ -275,6 +276,32 @@ func (m *InvoicePayment) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
+// InvoicePaymentAccept is an acceptance of an invoice payment. It should always be wrapped in a
+// response to the invoice payment message.
+type InvoicePaymentAccept struct {
+}
+
+func (*InvoicePaymentAccept) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDInvoices
+}
+
+func (m *InvoicePaymentAccept) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypePaymentAccept)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
+}
+
 // ExpandedTx is a Bitcoin transaction with ancestor information.
 // All ancestor transactions back to merkle proofs should be provided.
 type ExpandedTx struct {
@@ -291,13 +318,12 @@ type Output struct {
 type Outputs []*Output
 
 // AncestorTx is a tx containing a spent output contained in an expanded tx or an ancestor. If it is
-// confirmed then the merkle proof should be provided, otherwise the outputs and miner responses
-// should be provided and their ancestors included in the expanded tx.
+// confirmed then the merkle proof should be provided with the tx embedded in it, otherwise the
+// tx with miner responses should be provided and the ancestors included in the same expanded tx.
 type AncestorTx struct {
-	Tx             *wire.MsgTx               `bsor:"1" json:"tx"`                        // marshals as raw bytes
-	MinerResponses []string                  `bsor:"2" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
-	Outputs        Outputs                   `bsor:"3" json:"outputs,omitempty"`         // outputs spent by inputs of tx
-	MerkleProof    *merkle_proof.MerkleProof `bsor:"4" json:"merkle_proof,omitempty"`
+	MerkleProof    *merkle_proof.MerkleProof `bsor:"1" json:"merkle_proof,omitempty"`
+	Tx             *wire.MsgTx               `bsor:"2" json:"tx,omitempty"`              // marshals as raw bytes
+	MinerResponses []string                  `bsor:"3" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
 }
 
 type AncestorTxs []*AncestorTx
@@ -318,7 +344,7 @@ type Items []*Item
 // Price is a description of the payment required. Either quantity or amount can be specified
 // depending on whether the token protocol uses integers or floats to specify amounts.
 type Price struct {
-	Token    TokenID  `bsor:"1", json:"token"` // Token to pay with
+	Token    TokenID  `bsor:"1" json:"token"` // Token to pay with
 	Quantity *uint64  `bsor:"2" json:"quantity,omitempty"`
 	Amount   *float64 `bsor:"3" json:"amount,omitempty"`
 }
@@ -432,6 +458,8 @@ func InvoicesMessageForType(messageType InvoicesMessageType) ChannelsMessage {
 		return &InvoiceTx{}
 	case InvoicesMessageTypePayment:
 		return &InvoicePayment{}
+	case InvoicesMessageTypePaymentAccept:
+		return &InvoicePaymentAccept{}
 	case InvoicesMessageTypeInvalid:
 		return nil
 	default:
@@ -453,6 +481,8 @@ func InvoicesMessageTypeFor(message ChannelsMessage) InvoicesMessageType {
 		return InvoicesMessageTypeInvoiceTx
 	case *InvoicePayment:
 		return InvoicesMessageTypePayment
+	case *InvoicePaymentAccept:
+		return InvoicesMessageTypePaymentAccept
 	default:
 		return InvoicesMessageTypeInvalid
 	}
@@ -502,6 +532,8 @@ func (v *InvoicesMessageType) SetString(s string) error {
 		*v = InvoicesMessageTypeInvoiceTx
 	case "payment":
 		*v = InvoicesMessageTypePayment
+	case "accept":
+		*v = InvoicesMessageTypePaymentAccept
 	default:
 		*v = InvoicesMessageTypeInvalid
 		return fmt.Errorf("Unknown InvoicesMessageType value \"%s\"", s)
@@ -524,6 +556,8 @@ func (v InvoicesMessageType) String() string {
 		return "invoice_tx"
 	case InvoicesMessageTypePayment:
 		return "payment"
+	case InvoicesMessageTypePaymentAccept:
+		return "accept"
 	default:
 		return ""
 	}

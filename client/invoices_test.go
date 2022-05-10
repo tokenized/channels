@@ -22,13 +22,13 @@ func Test_Invoice(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
 	peerChannelsFactory := peer_channels.NewFactory()
 
-	userA, userB := MockRelatedUsers(ctx, peerChannelsFactory)
+	merchant, buyer := MockRelatedUsers(ctx, peerChannelsFactory)
 
-	userAChannel := userA.Client.Channels[0]
-	userAChannelKey := userA.HashKey(userAChannel.Hash())
+	merchantChannel := merchant.Channel(0)
+	merchantChannelKey := merchant.ChannelKey(merchantChannel)
 
-	userBChannel := userB.Client.Channels[0]
-	userBChannelKey := userB.HashKey(userBChannel.Hash())
+	buyerChannel := buyer.Channel(0)
+	buyerChannelKey := buyer.ChannelKey(buyerChannel)
 
 	/*************************************** Start Clients ****************************************/
 	/**********************************************************************************************/
@@ -38,14 +38,14 @@ func Test_Invoice(t *testing.T) {
 	interruptA := make(chan interface{})
 	wait.Add(1)
 	go func() {
-		userA.Client.Run(ctx, interruptA)
+		merchant.Run(ctx, interruptA)
 		wait.Done()
 	}()
 
 	interruptB := make(chan interface{})
 	wait.Add(1)
 	go func() {
-		userB.Client.Run(ctx, interruptB)
+		buyer.Run(ctx, interruptB)
 		wait.Done()
 	}()
 
@@ -114,37 +114,37 @@ func Test_Invoice(t *testing.T) {
 	t.Logf("Invoice Tx : %s", js)
 
 	msgHash := wallet.GenerateHash("invoice_tx")
-	invoiceTxScript, err := channels.Wrap(invoiceTx, userAChannelKey, msgHash, nil)
+	invoiceTxScript, err := channels.Wrap(invoiceTx, merchantChannelKey, msgHash, nil)
 	if err != nil {
 		t.Fatalf("Failed to wrap invoice tx : %s", err)
 	}
 
 	t.Logf("Invoice script : %s", invoiceTxScript)
 
-	if err := SendMessage(ctx, peerChannelsFactory, userAChannel.Outgoing.Entity.PeerChannels,
-		invoiceTxScript); err != nil {
+	invoiceTxHash := bitcoin.Hash32(sha256.Sum256(invoiceTxScript))
+	t.Logf("Invoice hash : %s", invoiceTxHash)
+
+	if err := merchantChannel.SendMessage(ctx, invoiceTxScript); err != nil {
 		t.Fatalf("Failed to send invoice : %s", err)
 	}
 
-	userAChannel.Outgoing.AddMessage(ctx, invoiceTxScript)
-
 	time.Sleep(250 * time.Millisecond)
 
-	/************************************** Receive Invoice ***************************************/
+	/**************************************** Send Payment ****************************************/
 	/**********************************************************************************************/
 
 	time.Sleep(time.Millisecond * 250)
 
-	userBMessages, err := userB.Client.GetUnprocessedMessages(ctx)
+	buyerMessages, err := buyer.GetUnprocessedMessages(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
 
-	if len(userBMessages) != 1 {
-		t.Fatalf("Wrong message count : got %d, want %d", len(userBMessages), 1)
+	if len(buyerMessages) != 1 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err := channels.Unwrap(userBMessages[0].Message.Payload)
+	wMessage, err := channels.Unwrap(buyerMessages[0].Message.Payload)
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -175,18 +175,24 @@ func Test_Invoice(t *testing.T) {
 	previousTx := wire.NewMsgTx(1)
 	previousTx.AddTxOut(wire.NewTxOut(125000, paymentLockingScript))
 
-	if err := txb.AddInput(*wire.NewOutPoint(previousTx.TxHash(), 0), paymentLockingScript, 125000); err != nil {
+	// Payment
+	if err := txb.AddInput(*wire.NewOutPoint(previousTx.TxHash(), 0), paymentLockingScript,
+		125000); err != nil {
 		t.Fatalf("Failed to add payment input : %s", err)
 	}
 
-	fakeMerkleProof := MockMerkleProof(*previousTx.TxHash())
+	// Change
+	if err := txb.AddOutput(paymentLockingScript, 75000, true, false); err != nil {
+		t.Fatalf("Failed to add change output : %s", err)
+	}
+
+	fakeMerkleProof := MockMerkleProof(previousTx)
 
 	payment := &channels.InvoicePayment{
 		Tx: channels.ExpandedTx{
 			Tx: txb.MsgTx,
 			Ancestors: channels.AncestorTxs{
 				{
-					Tx:          previousTx,
 					MerkleProof: fakeMerkleProof,
 				},
 			},
@@ -196,24 +202,203 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(payment, "", "  ")
 	t.Logf("Invoice Payment : %s", js)
 
-	responseHash := bitcoin.Hash32(sha256.Sum256(userBMessages[0].Message.Payload))
+	responseHash := bitcoin.Hash32(sha256.Sum256(buyerMessages[0].Message.Payload))
+	t.Logf("Invoice tx response hash : %s", responseHash)
 
-	msgHash = wallet.GenerateHash("invoice_tx")
-	paymentScript, err := channels.Wrap(payment, userBChannelKey, msgHash, &responseHash)
+	if !invoiceTxHash.Equal(&responseHash) {
+		t.Errorf("Wrong invoice response hash : got %s, want %s", responseHash, invoiceTxHash)
+	}
+
+	msgHash = wallet.GenerateHash("payment_tx")
+	paymentScript, err := channels.Wrap(payment, buyerChannelKey, msgHash, &responseHash)
 	if err != nil {
-		t.Fatalf("Failed to wrap invoice tx : %s", err)
+		t.Fatalf("Failed to wrap invoice payment : %s", err)
 	}
 
 	t.Logf("Payment script : %s", paymentScript)
 
-	if err := SendMessage(ctx, peerChannelsFactory, userBChannel.Outgoing.Entity.PeerChannels,
-		paymentScript); err != nil {
-		t.Fatalf("Failed to send invoice : %s", err)
+	paymentHash := bitcoin.Hash32(sha256.Sum256(paymentScript))
+	t.Logf("Payment hash : %s", paymentHash)
+
+	if err := buyerChannel.SendMessage(ctx, paymentScript); err != nil {
+		t.Fatalf("Failed to send invoice payment : %s", err)
 	}
 
-	userAChannel.Outgoing.AddMessage(ctx, paymentScript)
+	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
+		buyerMessages[0].Message.Hash()); err != nil {
+		t.Fatalf("Failed to mark message as processed : %s", err)
+	}
 
 	time.Sleep(250 * time.Millisecond)
+
+	/*************************************** Accept Payment ***************************************/
+	/**********************************************************************************************/
+
+	time.Sleep(time.Millisecond * 250)
+
+	merchantMessages, err := merchant.GetUnprocessedMessages(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get unprocessed messages : %s", err)
+	}
+
+	if len(merchantMessages) != 1 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(merchantMessages), 1)
+	}
+
+	wMessage, err = channels.Unwrap(merchantMessages[0].Message.Payload)
+	if err != nil {
+		t.Fatalf("Failed to unwrap message : %s", err)
+	}
+
+	if wMessage.Response == nil {
+		t.Fatalf("Payment is not a response")
+	}
+
+	if !wMessage.Response.MessageHash.Equal(&invoiceTxHash) {
+		t.Fatalf("Payment response hash is wrong : got %s, want %s", wMessage.Response.MessageHash,
+			invoiceTxHash)
+	}
+
+	receivedInvoicePayment, ok := wMessage.Message.(*channels.InvoicePayment)
+	if !ok {
+		t.Fatalf("Received message not an invoice payment")
+	}
+
+	js, _ = json.MarshalIndent(receivedInvoicePayment, "", "  ")
+	t.Logf("Received Invoice Payment : %s", js)
+
+	paymentAccept := &channels.InvoicePaymentAccept{}
+
+	js, _ = json.MarshalIndent(paymentAccept, "", "  ")
+	t.Logf("Invoice Payment Accept : %s", js)
+
+	responseHash = bitcoin.Hash32(sha256.Sum256(merchantMessages[0].Message.Payload))
+
+	msgHash = wallet.GenerateHash("payment_accept")
+	paymentAcceptScript, err := channels.Wrap(paymentAccept, merchantChannelKey, msgHash,
+		&responseHash)
+	if err != nil {
+		t.Fatalf("Failed to wrap invoice payment accept : %s", err)
+	}
+
+	t.Logf("Payment Accept script : %s", paymentAcceptScript)
+
+	paymentAcceptHash := bitcoin.Hash32(sha256.Sum256(invoiceTxScript))
+	t.Logf("Payment Accept hash : %s", paymentAcceptHash)
+
+	if err := merchantChannel.SendMessage(ctx, paymentAcceptScript); err != nil {
+		t.Fatalf("Failed to send invoice payment accept : %s", err)
+	}
+
+	if err := merchantMessages[0].Channel.MarkMessageProcessed(ctx,
+		merchantMessages[0].Message.Hash()); err != nil {
+		t.Fatalf("Failed to mark message as processed : %s", err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+
+	/*********************************** Receive Payment Accept ***********************************/
+	/**********************************************************************************************/
+
+	time.Sleep(time.Millisecond * 250)
+
+	buyerMessages, err = buyer.GetUnprocessedMessages(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get unprocessed messages : %s", err)
+	}
+
+	if len(buyerMessages) != 1 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
+	}
+
+	wMessage, err = channels.Unwrap(buyerMessages[0].Message.Payload)
+	if err != nil {
+		t.Fatalf("Failed to unwrap message : %s", err)
+	}
+
+	if wMessage.Response == nil {
+		t.Fatalf("Payment accept is not a response")
+	}
+
+	if !wMessage.Response.MessageHash.Equal(&paymentHash) {
+		t.Fatalf("Payment accept response hash is wrong : got %s, want %s",
+			wMessage.Response.MessageHash, paymentHash)
+	}
+
+	receivedPaymentAccept, ok := wMessage.Message.(*channels.InvoicePaymentAccept)
+	if !ok {
+		t.Fatalf("Received message not a payment accept")
+	}
+
+	js, _ = json.MarshalIndent(receivedPaymentAccept, "", "  ")
+	t.Logf("Received Payment Accept : %s", js)
+
+	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
+		buyerMessages[0].Message.Hash()); err != nil {
+		t.Fatalf("Failed to mark message as processed : %s", err)
+	}
+
+	/************************************** Send Merkle Proof *************************************/
+	/**********************************************************************************************/
+
+	fakeMerkleProof = MockMerkleProof(txb.MsgTx)
+
+	merkleProof := &channels.MerkleProof{
+		MerkleProof: fakeMerkleProof,
+	}
+
+	js, _ = json.MarshalIndent(merkleProof, "", "  ")
+	t.Logf("Merkle Proof : %s", js)
+
+	msgHash = wallet.GenerateHash("payment_tx")
+	merkleProofScript, err := channels.Wrap(merkleProof, buyerChannelKey, msgHash, nil)
+	if err != nil {
+		t.Fatalf("Failed to wrap Merkle Proof : %s", err)
+	}
+
+	t.Logf("Merkle Proof script : %s", merkleProofScript)
+
+	if err := buyerChannel.SendMessage(ctx, merkleProofScript); err != nil {
+		t.Fatalf("Failed to send Merkle Proof : %s", err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+
+	/************************************ Receive Merkle Proof ************************************/
+	/**********************************************************************************************/
+
+	time.Sleep(time.Millisecond * 250)
+
+	merchantMessages, err = merchant.GetUnprocessedMessages(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get unprocessed messages : %s", err)
+	}
+
+	if len(merchantMessages) != 1 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(merchantMessages), 1)
+	}
+
+	wMessage, err = channels.Unwrap(merchantMessages[0].Message.Payload)
+	if err != nil {
+		t.Fatalf("Failed to unwrap message : %s", err)
+	}
+
+	if wMessage.Response != nil {
+		t.Fatalf("Merkle proof should not be a response")
+	}
+
+	receivedMerkleProof, ok := wMessage.Message.(*channels.MerkleProof)
+	if !ok {
+		t.Fatalf("Received message not a merkle proof")
+	}
+
+	js, _ = json.MarshalIndent(receivedMerkleProof, "", "  ")
+	t.Logf("Received Merkle Proof : %s", js)
+
+	if err := merchantMessages[0].Channel.MarkMessageProcessed(ctx,
+		merchantMessages[0].Message.Hash()); err != nil {
+		t.Fatalf("Failed to mark message as processed : %s", err)
+	}
 
 	/**************************************** Stop Clients ****************************************/
 	/**********************************************************************************************/

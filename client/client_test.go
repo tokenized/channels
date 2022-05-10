@@ -20,25 +20,38 @@ import (
 func Test_Initiate(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
 	peerChannelsFactory := peer_channels.NewFactory()
-	peerClient, _ := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
 
 	/******************************** Create User 1 Client ****************************************/
 	/**********************************************************************************************/
-	user1 := CreateMockUser(ctx, peerChannelsFactory, "User 1")
-	user1PublicChannel := user1.CreateInitiationChannel(ctx, peerClient)
-	user1Channel := user1.CreateChannel(ctx, peerClient)
-
-	if user1Channel.Outgoing.Entity != nil {
-		t.Errorf("User 1 outgoing entity should be nil")
+	client1 := MockClient(ctx, peerChannelsFactory)
+	user1PublicChannel, err := client1.CreatePublicChannel(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create channel : %s", err)
+	}
+	user1Channel, err := client1.CreatePrivateChannel(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create channel : %s", err)
+	}
+	user1Name := "User 1"
+	user1Identity := &channels.Identity{
+		Name: &user1Name,
 	}
 
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
-	user2 := CreateMockUser(ctx, peerChannelsFactory, "User 2")
-	user2Channel := user2.CreateChannel(ctx, peerClient)
+	client2 := MockClient(ctx, peerChannelsFactory)
+	user2Channel, err := client2.CreatePrivateChannel(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create channel : %s", err)
+	}
 
-	if user2Channel.Outgoing.Entity != nil {
-		t.Errorf("User 2 outgoing entity should be nil")
+	if err := user2Channel.SetExternalPeerChannels(user1PublicChannel.IncomingPeerChannels()); err != nil {
+		t.Fatalf("Failed to set peer channels : %s", err)
+	}
+
+	user2Name := "User 2"
+	user2Identity := &channels.Identity{
+		Name: &user2Name,
 	}
 
 	/*************************************** Start Clients ****************************************/
@@ -48,24 +61,24 @@ func Test_Initiate(t *testing.T) {
 	interrupt1 := make(chan interface{})
 	wait.Add(1)
 	go func() {
-		user1.Client.Run(ctx, interrupt1)
+		client1.Run(ctx, interrupt1)
 		wait.Done()
 	}()
 
 	interrupt2 := make(chan interface{})
 	wait.Add(1)
 	go func() {
-		user2.Client.Run(ctx, interrupt1)
+		client2.Run(ctx, interrupt1)
 		wait.Done()
 	}()
 
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
 	initiation := &channels.RelationshipInitiation{
-		PublicKey:          user2.HashKey(user2Channel.Hash()).PublicKey(),
-		PeerChannels:       user2Channel.Incoming.Entity.PeerChannels,
+		PublicKey:          client2.ChannelKey(user2Channel).PublicKey(),
+		PeerChannels:       user2Channel.IncomingPeerChannels(),
 		SupportedProtocols: SupportedProtocols(),
-		Identity:           user2.Client.Identity,
+		Identity:           *user2Identity,
 	}
 
 	initPayload, err := initiation.Write()
@@ -74,7 +87,7 @@ func Test_Initiate(t *testing.T) {
 	}
 
 	initRandHash := randHash()
-	signature, err := channels.Sign(initPayload, user2.HashKey(user2Channel.Hash()), &initRandHash,
+	signature, err := channels.Sign(initPayload, client2.ChannelKey(user2Channel), &initRandHash,
 		false)
 	if err != nil {
 		t.Fatalf("Failed to sign initiation message : %s", err)
@@ -93,19 +106,16 @@ func Test_Initiate(t *testing.T) {
 
 	initHash := bitcoin.Hash32(sha256.Sum256(script))
 
-	if err := SendMessage(ctx, peerChannelsFactory, user1PublicChannel.Incoming.Entity.PeerChannels,
-		script); err != nil {
+	if err := user2Channel.SendMessage(ctx, script); err != nil {
 		t.Fatalf("Failed to send initiation : %s", err)
 	}
-
-	user2Channel.Outgoing.AddMessage(ctx, script)
 
 	/******************************** Respond to Initiation Message *******************************/
 	/**********************************************************************************************/
 
 	time.Sleep(time.Millisecond * 250)
 
-	user1Messages, err := user1.Client.GetUnprocessedMessages(ctx)
+	user1Messages, err := client1.GetUnprocessedMessages(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
@@ -155,22 +165,26 @@ func Test_Initiate(t *testing.T) {
 		}
 		initiationFound = true
 
-		if !initiation.PublicKey.Equal(user2.HashKey(user2Channel.Hash()).PublicKey()) {
+		if !initiation.PublicKey.Equal(client2.ChannelKey(user2Channel).PublicKey()) {
 			t.Errorf("Wrong public key in initiation : got %s, want %s",
-				initiation.PublicKey, user2.HashKey(user2Channel.Hash()).PublicKey())
+				initiation.PublicKey, client2.ChannelKey(user2Channel).PublicKey())
 		}
 
-		if initiation.PeerChannels[0].ID != user2Channel.Incoming.Entity.PeerChannels[0].ID {
+		if initiation.PeerChannels[0].ID != user2Channel.IncomingPeerChannels()[0].ID {
 			t.Errorf("Wrong peer channel in initiation : got %s, want %s",
-				initiation.PeerChannels[0].ID, user2Channel.Incoming.Entity.PeerChannels[0].ID)
+				initiation.PeerChannels[0].ID, user2Channel.IncomingPeerChannels()[0].ID)
+		}
+
+		if err := user1Channel.Initialize(ctx, initiation); err != nil {
+			t.Fatalf("Failed to initialize channel : %s", err)
 		}
 
 		// Respond to relationship initiation
 		responseInitiation := &channels.RelationshipInitiation{
-			PublicKey:          user1Channel.Incoming.Entity.PublicKey,
-			PeerChannels:       user1Channel.Incoming.Entity.PeerChannels,
+			PublicKey:          client1.ChannelKey(user1Channel).PublicKey(),
+			PeerChannels:       user1Channel.IncomingPeerChannels(),
 			SupportedProtocols: SupportedProtocols(),
-			Identity:           user1.Client.Identity,
+			Identity:           *user1Identity,
 		}
 
 		responsePayload, err := responseInitiation.Write()
@@ -193,7 +207,7 @@ func Test_Initiate(t *testing.T) {
 		}
 
 		responseHash := randHash()
-		signature, err = channels.Sign(responsePayload, user1.HashKey(user1Channel.Hash()),
+		signature, err = channels.Sign(responsePayload, client1.ChannelKey(user1Channel),
 			&responseHash, false)
 		if err != nil {
 			t.Fatalf("Failed to sign initiation message : %s", err)
@@ -210,20 +224,13 @@ func Test_Initiate(t *testing.T) {
 			t.Fatalf("Failed to create script : %s", err)
 		}
 
-		if err := SendMessage(ctx, peerChannelsFactory, initiation.PeerChannels,
-			script); err != nil {
+		if err := user1Channel.SendMessage(ctx, script); err != nil {
 			t.Fatalf("Failed to send initiation : %s", err)
 		}
-
-		user1Channel.Outgoing.AddMessage(ctx, script)
 	}
 
 	if !initiationFound {
 		t.Errorf("Initiation not found")
-	}
-
-	if user2Channel.Outgoing.Entity != nil {
-		t.Errorf("User 2 outgoing entity should be nil")
 	}
 
 	/***************************** Receive Initiation Response Message ****************************/
@@ -231,7 +238,7 @@ func Test_Initiate(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 250)
 
-	user2Messages, err := user2.Client.GetUnprocessedMessages(ctx)
+	user2Messages, err := client2.GetUnprocessedMessages(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
@@ -281,25 +288,21 @@ func Test_Initiate(t *testing.T) {
 		}
 		responseFound = true
 
-		publicKey := user1.HashKey(user1Channel.Hash()).PublicKey()
+		publicKey := client1.ChannelKey(user1Channel).PublicKey()
 
 		if !msg.PublicKey.Equal(publicKey) {
 			t.Errorf("Wrong public key in initiation response : got %s, want %s",
 				msg.PublicKey, publicKey)
 		}
 
-		if msg.PeerChannels[0].ID != user1Channel.Incoming.Entity.PeerChannels[0].ID {
+		if msg.PeerChannels[0].ID != user1Channel.IncomingPeerChannels()[0].ID {
 			t.Errorf("Wrong peer channel in initiation response : got %s, want %s",
-				msg.PeerChannels[0].ID, user1Channel.Incoming.Entity.PeerChannels[0].ID)
+				msg.PeerChannels[0].ID, user1Channel.IncomingPeerChannels()[0].ID)
 		}
 	}
 
 	if !responseFound {
 		t.Errorf("Initiation response not found")
-	}
-
-	if user2Channel.Outgoing.Entity == nil {
-		t.Errorf("User 2 outgoing entity should not be nil")
 	}
 
 	/**************************************** Stop Clients ****************************************/
