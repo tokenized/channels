@@ -2,37 +2,56 @@ package client
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"io"
 	"sync"
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
+	"github.com/tokenized/pkg/storage"
 
 	"github.com/pkg/errors"
+)
+
+const (
+	communicationChannelsVersion = uint8(0)
 )
 
 type CommunicationChannel struct {
 	peerChannels channels.PeerChannels
 
-	messages   Messages
-	messageMap map[bitcoin.Hash32]int
+	lowestUnprocessed uint32
+	loadedOffset      int
+	savedOffset       uint32
+	messageCount      uint32
+	messages          Messages
+
+	basePath string
+	store    storage.StreamReadWriter
 
 	lock sync.RWMutex
 }
 
-func NewCommunicationChannel(peerChannels channels.PeerChannels) *CommunicationChannel {
+func NewCommunicationChannel(peerChannels channels.PeerChannels,
+	store storage.StreamReadWriter, basePath string) *CommunicationChannel {
 	return &CommunicationChannel{
 		peerChannels: peerChannels,
-		messageMap:   make(map[bitcoin.Hash32]int),
+		store:        store,
+		basePath:     basePath,
 	}
 }
 
-// func NewEmptyCommunicationChannel() *CommunicationChannel {
-// 	return &CommunicationChannel{
-// 		messageMap: make(map[bitcoin.Hash32]int),
-// 	}
-// }
+func newCommunicationChannel(store storage.StreamReadWriter,
+	basePath string) *CommunicationChannel {
+	return &CommunicationChannel{
+		store:    store,
+		basePath: basePath,
+	}
+}
 
 func (c *CommunicationChannel) HasPeerChannelID(id string) bool {
 	c.lock.RLock()
@@ -68,7 +87,7 @@ func (c *CommunicationChannel) GetUnprocessedMessages(ctx context.Context) (Mess
 
 	var result Messages
 	for _, message := range c.messages {
-		if message.IsProcessed {
+		if message.IsProcessed() {
 			continue
 		}
 
@@ -79,54 +98,88 @@ func (c *CommunicationChannel) GetUnprocessedMessages(ctx context.Context) (Mess
 	return result, nil
 }
 
-func (c *CommunicationChannel) MarkMessageProcessed(ctx context.Context,
-	hash bitcoin.Hash32) error {
+func (c *CommunicationChannel) MarkMessageProcessed(ctx context.Context, id uint64) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	index, exists := c.messageMap[hash]
-	if !exists {
-		return ErrMessageNotFound
+	if id < uint64(c.loadedOffset) {
+		messages, err := loadMessageFile(ctx, c.store, c.basePath, int(id))
+		if err != nil {
+			return errors.Wrapf(err, "load file %d", id)
+		}
+
+		offset := id - messages[0].ID()
+		messages[offset].setIsProcessed()
+
+		if err := saveMessageFile(ctx, c.store, c.basePath, messages); err != nil {
+			return errors.Wrapf(err, "save file %d", id)
+		}
+
+		return nil
 	}
 
-	c.messages[index].IsProcessed = true
+	offset := uint32(id - uint64(c.loadedOffset))
+	c.messages[offset].setIsProcessed()
+
+	current := uint32(id)
+	count := uint32(len(c.messages))
+	for current == c.lowestUnprocessed {
+		current++
+		c.lowestUnprocessed++
+		offset++
+
+		if offset == count {
+			break
+		}
+
+		if !c.messages[offset].IsProcessed() {
+			break
+		}
+	}
+
 	return nil
 }
 
-func (c *CommunicationChannel) AddMessage(ctx context.Context, message bitcoin.Script) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	return c.addMessage(ctx, message)
-}
-
-func (c *CommunicationChannel) addMessage(ctx context.Context, message bitcoin.Script) error {
-	now := channels.Now()
+func (c *CommunicationChannel) newMessage(ctx context.Context) (*Message, error) {
 	msg := &Message{
-		Payload:  message,
-		Received: &now,
+		id: uint64(c.loadedOffset + len(c.messages)),
 	}
-	hash := msg.Hash()
 
-	c.messageMap[hash] = len(c.messages)
 	c.messages = append(c.messages, msg)
 
 	logger.InfoWithFields(ctx, []logger.Field{
-		logger.Stringer("message_hash", hash),
-	}, "Added message")
-	return nil
+		logger.Uint64("message_id", msg.ID()),
+	}, "New message")
+	return msg, nil
+}
+
+func (c *CommunicationChannel) newMessageWithPayload(ctx context.Context,
+	payload bitcoin.Script) (*Message, error) {
+	msg := &Message{
+		id:        uint64(c.loadedOffset + len(c.messages)),
+		payload:   payload,
+		timestamp: channels.Now(),
+	}
+
+	c.messages = append(c.messages, msg)
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Uint64("message_id", msg.ID()),
+	}, "New message")
+	return msg, nil
 }
 
 func (c *CommunicationChannel) sendMessage(ctx context.Context,
-	peerChannelsFactory *peer_channels.Factory, message bitcoin.Script) error {
+	peerChannelsFactory *peer_channels.Factory, message *Message) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if err := sendMessage(ctx, peerChannelsFactory, c.peerChannels, message); err != nil {
+	if err := sendMessage(ctx, peerChannelsFactory, c.peerChannels, message.Payload()); err != nil {
 		return errors.Wrap(err, "send")
 	}
 
-	return c.addMessage(ctx, message)
+	message.SetNow()
+	return nil
 }
 
 func sendMessage(ctx context.Context, peerChannelsFactory *peer_channels.Factory,
@@ -154,6 +207,228 @@ func sendMessage(ctx context.Context, peerChannelsFactory *peer_channels.Factory
 
 	if !success {
 		return lastErr
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) Save(ctx context.Context) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	path := fmt.Sprintf("%s/channel", c.basePath)
+	if err := storage.StreamWrite(ctx, c.store, path, c); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	if err := c.saveMessages(ctx); err != nil {
+		return errors.Wrap(err, "messages")
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) saveMessages(ctx context.Context) error {
+	offset := int(c.savedOffset)
+	mod := offset % messagesPerFile
+	if mod != 0 {
+		offset -= mod
+	}
+	endOffset := c.loadedOffset + len(c.messages)
+
+	for ; offset < endOffset; offset += messagesPerFile {
+		path := fmt.Sprintf("%s/%08x", c.basePath, offset/messagesPerFile)
+
+		start := offset - c.loadedOffset
+		end := start + messagesPerFile
+		if end >= endOffset {
+			end = endOffset
+		}
+
+		if err := storage.StreamWrite(ctx, c.store, path, c.messages[start:end]); err != nil {
+			return errors.Wrapf(err, "write %d-%d", start, end)
+		}
+	}
+
+	c.savedOffset = uint32(endOffset)
+	return nil
+}
+
+func saveMessageFile(ctx context.Context, store storage.StreamWriter, basePath string,
+	messages Messages) error {
+
+	if len(messages) == 0 {
+		return errors.New("Messages empty")
+	}
+
+	offset := int(messages[0].ID())
+	if offset%messagesPerFile != 0 {
+		return fmt.Errorf("Messages don't start at start of file: %d", offset)
+	}
+
+	path := fmt.Sprintf("%s/%08x", basePath, offset/messagesPerFile)
+
+	if err := storage.StreamWrite(ctx, store, path, messages); err != nil {
+		return errors.Wrapf(err, "write %d-%d", offset, offset+len(messages)-1)
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) Load(ctx context.Context) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	path := fmt.Sprintf("%s/channel", c.basePath)
+	if err := storage.StreamRead(ctx, c.store, path, c); err != nil {
+		return errors.Wrap(err, "read")
+	}
+
+	offset := 0
+	if c.messageCount > messagesPerFile {
+		offset = int(c.messageCount) - messagesPerFile
+	}
+
+	if err := c.loadMessages(ctx, offset); err != nil {
+		return errors.Wrap(err, "messages")
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) loadMessages(ctx context.Context, offset int) error {
+	mod := offset % messagesPerFile
+	if mod != 0 {
+		offset -= mod
+	}
+
+	if offset > int(c.lowestUnprocessed) {
+		offset = int(c.lowestUnprocessed)
+	}
+	mod = offset % messagesPerFile
+	if mod != 0 {
+		offset -= mod
+	}
+
+	loadOffset := offset
+
+	c.messages = make(Messages, 0, messagesPerFile)
+	for {
+		path := fmt.Sprintf("%s/%08x", c.basePath, offset/messagesPerFile)
+
+		var newMessages Messages
+		if err := storage.StreamRead(ctx, c.store, path, &newMessages); err != nil {
+			if errors.Cause(err) == storage.ErrNotFound {
+				break
+			}
+			return errors.Wrapf(err, "read %d-", offset)
+		}
+
+		for _, message := range newMessages {
+			message.id = uint64(offset)
+			c.messages = append(c.messages, message)
+			offset++
+		}
+
+		if len(newMessages) != messagesPerFile {
+			// file not full
+			break
+		}
+	}
+
+	c.loadedOffset = loadOffset
+	return nil
+}
+
+func loadMessageFile(ctx context.Context, store storage.StreamReader, basePath string,
+	offset int) (Messages, error) {
+
+	mod := offset % messagesPerFile
+	if mod != 0 {
+		offset -= mod
+	}
+
+	messages := make(Messages, 0, messagesPerFile)
+	path := fmt.Sprintf("%s/%08x", basePath, offset/messagesPerFile)
+
+	var newMessages Messages
+	if err := storage.StreamRead(ctx, store, path, &newMessages); err != nil {
+		if errors.Cause(err) == storage.ErrNotFound {
+			return nil, err
+		}
+		return nil, errors.Wrapf(err, "read %d-", offset)
+	}
+
+	for _, message := range newMessages {
+		message.id = uint64(offset)
+		messages = append(messages, message)
+		offset++
+	}
+
+	return messages, nil
+}
+
+func (c *CommunicationChannel) Serialize(w io.Writer) error {
+	if err := binary.Write(w, endian, communicationChannelsVersion); err != nil {
+		return errors.Wrap(err, "version")
+	}
+
+	peerChannelsBSOR, err := bsor.MarshalBinary(c.peerChannels)
+	if err != nil {
+		return errors.Wrap(err, "marshal peer channels")
+	}
+
+	if err := binary.Write(w, endian, uint32(len(peerChannelsBSOR))); err != nil {
+		return errors.Wrap(err, "peer channels size")
+	}
+
+	if _, err := w.Write(peerChannelsBSOR); err != nil {
+		return errors.Wrap(err, "write peer channels")
+	}
+
+	c.messageCount = uint32(c.loadedOffset + len(c.messages))
+	if err := binary.Write(w, endian, c.messageCount); err != nil {
+		return errors.Wrap(err, "message count")
+	}
+
+	if err := binary.Write(w, endian, c.lowestUnprocessed); err != nil {
+		return errors.Wrap(err, "lowest unprocessed")
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) Deserialize(r io.Reader) error {
+	var version uint8
+	if err := binary.Read(r, endian, &version); err != nil {
+		return errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return errors.New("Unsupported version")
+	}
+
+	var peerChannelsSize uint32
+	if err := binary.Read(r, endian, &peerChannelsSize); err != nil {
+		return errors.Wrap(err, "peer channels size")
+	}
+
+	peerChannelsBSOR := make([]byte, peerChannelsSize)
+	if _, err := io.ReadFull(r, peerChannelsBSOR); err != nil {
+		return errors.Wrap(err, "read peer channels")
+	}
+
+	var peerChannels channels.PeerChannels
+	if _, err := bsor.UnmarshalBinary(peerChannelsBSOR, &peerChannels); err != nil {
+		return errors.Wrap(err, "unmarshal peer channels")
+	}
+	c.peerChannels = peerChannels
+
+	if err := binary.Read(r, endian, &c.messageCount); err != nil {
+		return errors.Wrap(err, "message count")
+	}
+
+	if err := binary.Read(r, endian, &c.lowestUnprocessed); err != nil {
+		return errors.Wrap(err, "lowest unprocessed")
 	}
 
 	return nil

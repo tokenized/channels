@@ -9,6 +9,7 @@ import (
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/peer_channels"
+	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/wire"
 )
 
@@ -17,27 +18,27 @@ type MockUser struct {
 	Client  *Client
 }
 
-func MockRelatedUsers(ctx context.Context,
+func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	peerChannelsFactory *peer_channels.Factory) (*Client, *Client) {
 
 	userAName := "User A"
 	userAIdentity := &channels.Identity{
 		Name: &userAName,
 	}
-	clientA := MockClient(ctx, peerChannelsFactory)
+	clientA := MockClient(ctx, store, peerChannelsFactory)
 
 	userBName := "User B"
 	userBIdentity := &channels.Identity{
 		Name: &userBName,
 	}
-	clientB := MockClient(ctx, peerChannelsFactory)
+	clientB := MockClient(ctx, store, peerChannelsFactory)
 
-	channelA, err := clientA.CreatePrivateChannel(ctx)
+	channelA, err := clientA.CreateRelationshipChannel(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create channel : %s", err))
 	}
 
-	channelB, err := clientB.CreatePrivateChannel(ctx)
+	channelB, err := clientB.CreateRelationshipChannel(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create channel : %s", err))
 	}
@@ -49,7 +50,7 @@ func MockRelatedUsers(ctx context.Context,
 		Identity:           *userBIdentity,
 	}
 
-	if err := channelA.Initialize(ctx, userBInitiation); err != nil {
+	if err := channelA.InitializeRelationship(ctx, userBInitiation); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 
@@ -60,14 +61,15 @@ func MockRelatedUsers(ctx context.Context,
 		Identity:           *userAIdentity,
 	}
 
-	if err := channelB.Initialize(ctx, userAInitiation); err != nil {
+	if err := channelB.InitializeRelationship(ctx, userAInitiation); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 
 	return clientA, clientB
 }
 
-func MockClient(ctx context.Context, peerChannelsFactory *peer_channels.Factory) *Client {
+func MockClient(ctx context.Context, store storage.StreamReadWriter,
+	peerChannelsFactory *peer_channels.Factory) *Client {
 	peerClient, _ := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
 
 	accountID, accountToken, err := peerClient.CreateAccount(ctx, "")
@@ -85,7 +87,7 @@ func MockClient(ctx context.Context, peerChannelsFactory *peer_channels.Factory)
 			BaseURL: peer_channels.MockClientURL,
 			ID:      *accountID,
 			Token:   *accountToken,
-		}, peerChannelsFactory)
+		}, store, peerChannelsFactory)
 }
 
 func MockMerkleProof(tx *wire.MsgTx) *merkle_proof.MerkleProof {

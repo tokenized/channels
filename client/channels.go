@@ -2,42 +2,59 @@ package client
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/tokenized/channels"
-	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
+	"github.com/tokenized/pkg/storage"
 
 	"github.com/pkg/errors"
 )
 
-var (
-	ErrAlreadyEstablished = errors.New("Already Established")
-	ErrIsPublic           = errors.New("Is Public")
+const (
+	ChannelTypeUnspecified = ChannelType(0)
+
+	// ChannelTypeRelationshipInitiation is the channel type that is used to initiation new
+	// relationships. Relationship initiation messages should be received on it, then a new
+	// ChannelTypeRelationship channel is created for each relationship.
+	ChannelTypeRelationshipInitiation = ChannelType(1)
+
+	// ChannelTypeRelationship is a channel that is used for one relationship.
+	ChannelTypeRelationship = ChannelType(2)
+
+	channelsPath    = "channels_client/channels"
+	channelsVersion = uint8(0)
 )
 
+var (
+	ErrAlreadyEstablished = errors.New("Already Established")
+	ErrNotRelationship    = errors.New("Not Relationship")
+)
+
+type ChannelType uint8
+
 type Channel struct {
-	// isPublic means this channel is publicly writable. Other users can send new relationship
-	// initiation messages to it and will be directed to new channels if they are accepted.
-	// Other communication like one time requests might also be available through these.
-	isPublic bool
+	// typ is the type of the channel, or what it is used for.
+	typ ChannelType
 
 	// Hash used to derive channel's base key
 	hash bitcoin.Hash32
 
+	// externalPublicKey is the base public key of the other party.
 	externalPublicKey *bitcoin.PublicKey
 
-	// internal represents the local identity and the peer channels that messages are received on
-	// and those messages.
-	internal *CommunicationChannel
+	// incoming represents the messages are received.
+	incoming *CommunicationChannel
 
-	// external represents the other identity and the peers channels that messages are sent to and
-	// those messages.
-	external *CommunicationChannel
+	// outgoing represents the messages are sent.
+	outgoing *CommunicationChannel
 
+	store               storage.StreamReadWriter
 	peerChannelsFactory *peer_channels.Factory
 
 	lock sync.RWMutex
@@ -45,32 +62,38 @@ type Channel struct {
 
 type Channels []*Channel
 
-func NewPrivateChannel(peerChannelsFactory *peer_channels.Factory, hash bitcoin.Hash32,
-	internalPeerChannels channels.PeerChannels) *Channel {
+func NewChannel(typ ChannelType, hash bitcoin.Hash32, incomingPeerChannels channels.PeerChannels,
+	store storage.StreamReadWriter, peerChannelsFactory *peer_channels.Factory) *Channel {
 	return &Channel{
-		hash:                hash,
-		internal:            NewCommunicationChannel(internalPeerChannels),
-		external:            NewCommunicationChannel(nil),
+		typ:  typ,
+		hash: hash,
+		incoming: NewCommunicationChannel(incomingPeerChannels, store,
+			channelIncomingPath(hash)),
+		outgoing: NewCommunicationChannel(nil, store,
+			channelOutgoingPath(hash)),
+		store:               store,
 		peerChannelsFactory: peerChannelsFactory,
 	}
 }
 
-func NewPublicChannel(peerChannelsFactory *peer_channels.Factory, hash bitcoin.Hash32,
-	internalPeerChannels channels.PeerChannels) *Channel {
+func newChannel(hash bitcoin.Hash32, store storage.StreamReadWriter,
+	peerChannelsFactory *peer_channels.Factory) *Channel {
 	return &Channel{
-		isPublic:            true,
-		hash:                hash,
-		internal:            NewCommunicationChannel(internalPeerChannels),
-		external:            NewCommunicationChannel(nil),
+		hash: hash,
+		incoming: newCommunicationChannel(store,
+			channelIncomingPath(hash)),
+		outgoing: newCommunicationChannel(store,
+			channelOutgoingPath(hash)),
+		store:               store,
 		peerChannelsFactory: peerChannelsFactory,
 	}
 }
 
-func (c *Channel) IsPublic() bool {
+func (c *Channel) Type() ChannelType {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	return c.isPublic
+	return c.typ
 }
 
 func (c *Channel) Hash() bitcoin.Hash32 {
@@ -81,62 +104,41 @@ func (c *Channel) Hash() bitcoin.Hash32 {
 }
 
 func (c *Channel) IncomingPeerChannels() channels.PeerChannels {
-	return c.internal.PeerChannels()
+	return c.incoming.PeerChannels()
 }
 
-func (c *Channel) SetExternalPeerChannels(peerChannels channels.PeerChannels) error {
-	return c.external.SetPeerChannels(peerChannels)
+func (c *Channel) SetOutgoingPeerChannels(peerChannels channels.PeerChannels) error {
+	return c.outgoing.SetPeerChannels(peerChannels)
 }
 
-func (c *Channel) Initialize(ctx context.Context,
+func (c *Channel) InitializeRelationship(ctx context.Context,
 	initiation *channels.RelationshipInitiation) error {
 
-	if c.IsPublic() {
-		return ErrIsPublic
+	if c.Type() != ChannelTypeRelationship {
+		return ErrNotRelationship
 	}
 
-	if err := c.external.SetPeerChannels(initiation.PeerChannels); err != nil {
+	if err := c.outgoing.SetPeerChannels(initiation.PeerChannels); err != nil {
 		return errors.Wrap(err, "set entity")
 	}
 
 	if err := c.SetExternalPublicKey(initiation.PublicKey); err != nil {
-		return errors.Wrap(err, "set external public key")
+		return errors.Wrap(err, "set outgoing public key")
 	}
 
 	return nil
 }
 
-func (c *Channel) SendMessage(ctx context.Context, message bitcoin.Script) error {
-	return c.external.sendMessage(ctx, c.peerChannelsFactory, message)
+func (c *Channel) NewMessage(ctx context.Context) (*Message, error) {
+	return c.outgoing.newMessage(ctx)
 }
 
-func (c *Channel) MarkMessageProcessed(ctx context.Context, hash bitcoin.Hash32) error {
-	return c.internal.MarkMessageProcessed(ctx, hash)
+func (c *Channel) SendMessage(ctx context.Context, message *Message) error {
+	return c.outgoing.sendMessage(ctx, c.peerChannelsFactory, message)
 }
 
-func (c *Channel) Reject(ctx context.Context, messageHash bitcoin.Hash32,
-	reject *channels.Reject) error {
-
-	reject.MessageHash = messageHash
-
-	logger.InfoWithFields(ctx, []logger.Field{
-		logger.JSON("reject", reject),
-		logger.String("reject_code", reject.CodeToString()),
-	}, "Adding reject")
-
-	payload, err := reject.Write()
-	if err != nil {
-		return errors.Wrap(err, "write")
-	}
-
-	scriptItems := envelopeV1.Wrap(payload)
-	script, err := scriptItems.Script()
-	if err != nil {
-		return errors.Wrap(err, "script")
-	}
-
-	// TODO Figure out how this will get signed. --ce
-	return c.external.addMessage(ctx, script)
+func (c *Channel) MarkMessageProcessed(ctx context.Context, id uint64) error {
+	return c.incoming.MarkMessageProcessed(ctx, id)
 }
 
 func (c *Channel) GetExternalPublicKey() *bitcoin.PublicKey {
@@ -155,7 +157,8 @@ func (c *Channel) SetExternalPublicKey(publicKey bitcoin.PublicKey) error {
 }
 
 func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Message) error {
-	if err := c.internal.addMessage(ctx, bitcoin.Script(message.Payload)); err != nil {
+	msg, err := c.incoming.newMessageWithPayload(ctx, bitcoin.Script(message.Payload))
+	if err != nil {
 		return errors.Wrap(err, "add message")
 	}
 
@@ -165,7 +168,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 	}
 
 	if wMessage.Signature == nil {
-		if err := c.Reject(ctx, message.Hash(), &channels.Reject{
+		if err := msg.Reject(&channels.Reject{
 			Reason:           channels.RejectReasonInvalid,
 			RejectProtocolID: channels.ProtocolIDSignedMessages,
 			Code:             channels.SignedRejectCodeSignatureRequired,
@@ -177,7 +180,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 
 	if wMessage.Response != nil {
 		logger.InfoWithFields(ctx, []logger.Field{
-			logger.Stringer("response_hash", wMessage.Response.MessageHash),
+			logger.Uint64("response_id", wMessage.Response.MessageID),
 		}, "Response")
 	}
 
@@ -186,7 +189,6 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 	var entity *channels.Entity
 	switch msg := wMessage.Message.(type) {
 	case *channels.RelationshipInitiation:
-		fmt.Printf("Is Relationship\n")
 		relationship := channels.Entity(*msg)
 		entity = &relationship
 		if publicKey == nil {
@@ -196,7 +198,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 	}
 
 	if publicKey == nil {
-		if err := c.Reject(ctx, message.Hash(), &channels.Reject{
+		if err := msg.Reject(&channels.Reject{
 			Reason:           channels.RejectReasonInvalid,
 			RejectProtocolID: channels.ProtocolIDRelationships,
 			Code:             channels.RelationshipsRejectCodeNotInitiated,
@@ -219,7 +221,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 		if errors.Cause(err) == channels.ErrInvalidSignature {
 			code = channels.SignedRejectCodeInvalidSignature
 		}
-		if err := c.Reject(ctx, message.Hash(), &channels.Reject{
+		if err := msg.Reject(&channels.Reject{
 			Reason:           channels.RejectReasonInvalid,
 			RejectProtocolID: channels.ProtocolIDSignedMessages,
 			Code:             code,
@@ -229,12 +231,11 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 		return nil
 	}
 
-	if !c.IsPublic() && entity != nil {
-		if err := c.external.SetPeerChannels(entity.PeerChannels); err != nil {
+	if c.Type() == ChannelTypeRelationship && entity != nil {
+		if err := c.outgoing.SetPeerChannels(entity.PeerChannels); err != nil {
 			// TODO Allow entity updates --ce
 			if errors.Cause(err) == ErrAlreadyEstablished {
-				fmt.Printf("Already have entity\n")
-				if err := c.Reject(ctx, message.Hash(), &channels.Reject{
+				if err := msg.Reject(&channels.Reject{
 					Reason:           channels.RejectReasonInvalid,
 					RejectProtocolID: channels.ProtocolIDRelationships,
 					Code:             channels.RelationshipsRejectCodeAlreadyInitiated,
@@ -247,9 +248,172 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 		}
 
 		if err := c.SetExternalPublicKey(entity.PublicKey); err != nil {
-			return errors.Wrap(err, "set external public key")
+			return errors.Wrap(err, "set outgoing public key")
 		}
 	}
 
 	return nil
+}
+
+func channelPath(hash bitcoin.Hash32) string {
+	return fmt.Sprintf("%s/%s/channel", channelsPath, hash)
+}
+
+func channelIncomingPath(hash bitcoin.Hash32) string {
+	return fmt.Sprintf("%s/%s/incoming", channelsPath, hash)
+}
+
+func channelOutgoingPath(hash bitcoin.Hash32) string {
+	return fmt.Sprintf("%s/%s/outgoing", channelsPath, hash)
+}
+
+func (c *Channel) Save(ctx context.Context) error {
+	path := channelPath(c.Hash())
+
+	if err := storage.StreamWrite(ctx, c.store, path, c); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	if err := c.incoming.Save(ctx); err != nil {
+		return errors.Wrap(err, "incoming")
+	}
+
+	if err := c.outgoing.Save(ctx); err != nil {
+		return errors.Wrap(err, "outgoing")
+	}
+
+	return nil
+}
+
+func LoadChannel(ctx context.Context, store storage.StreamReadWriter,
+	peerChannelsFactory *peer_channels.Factory, hash bitcoin.Hash32) (*Channel, error) {
+
+	path := channelPath(hash)
+	channel := newChannel(hash, store, peerChannelsFactory)
+	if err := storage.StreamRead(ctx, store, path, channel); err != nil {
+		return nil, errors.Wrap(err, "read")
+	}
+
+	if err := channel.incoming.Load(ctx); err != nil {
+		return nil, errors.Wrap(err, "incoming")
+	}
+
+	if err := channel.outgoing.Load(ctx); err != nil {
+		return nil, errors.Wrap(err, "outgoing")
+	}
+
+	return channel, nil
+}
+
+func (c *Channel) Serialize(w io.Writer) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if err := binary.Write(w, endian, channelsVersion); err != nil {
+		return errors.Wrap(err, "version")
+	}
+
+	if err := binary.Write(w, endian, c.typ); err != nil {
+		return errors.Wrap(err, "type")
+	}
+
+	if err := binary.Write(w, endian, c.externalPublicKey != nil); err != nil {
+		return errors.Wrap(err, "has public key")
+	}
+
+	if c.externalPublicKey != nil {
+		if err := c.externalPublicKey.Serialize(w); err != nil {
+			return errors.Wrap(err, "public key")
+		}
+	}
+
+	return nil
+}
+
+func (c *Channel) Deserialize(r io.Reader) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	var version uint8
+	if err := binary.Read(r, endian, &version); err != nil {
+		return errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return errors.New("Unsupported version")
+	}
+
+	if err := binary.Read(r, endian, &c.typ); err != nil {
+		return errors.Wrap(err, "type")
+	}
+
+	var hasPublicKey bool
+	if err := binary.Read(r, endian, &hasPublicKey); err != nil {
+		return errors.Wrap(err, "has public key")
+	}
+
+	if hasPublicKey {
+		c.externalPublicKey = &bitcoin.PublicKey{}
+		if err := c.externalPublicKey.Deserialize(r); err != nil {
+			return errors.Wrap(err, "public key")
+		}
+	} else {
+		c.externalPublicKey = nil
+	}
+
+	return nil
+}
+
+func (v *ChannelType) UnmarshalJSON(data []byte) error {
+	if len(data) < 2 {
+		return fmt.Errorf("Too short for ChannelType : %d", len(data))
+	}
+
+	return v.SetString(string(data[1 : len(data)-1]))
+}
+
+func (v ChannelType) MarshalJSON() ([]byte, error) {
+	s := v.String()
+	if len(s) == 0 {
+		return []byte("null"), nil
+	}
+
+	return []byte(fmt.Sprintf("\"%s\"", s)), nil
+}
+
+func (v ChannelType) MarshalText() ([]byte, error) {
+	s := v.String()
+	if len(s) == 0 {
+		return nil, fmt.Errorf("Unknown ChannelType value \"%d\"", uint8(v))
+	}
+
+	return []byte(s), nil
+}
+
+func (v *ChannelType) UnmarshalText(text []byte) error {
+	return v.SetString(string(text))
+}
+
+func (v *ChannelType) SetString(s string) error {
+	switch s {
+	case "relationship_initiation":
+		*v = ChannelTypeRelationshipInitiation
+	case "relationship":
+		*v = ChannelTypeRelationship
+	default:
+		*v = ChannelTypeUnspecified
+		return fmt.Errorf("Unknown ChannelType value \"%s\"", s)
+	}
+
+	return nil
+}
+
+func (v ChannelType) String() string {
+	switch v {
+	case ChannelTypeRelationshipInitiation:
+		return "relationship_initiation"
+	case ChannelTypeRelationship:
+		return "relationship"
+	default:
+		return ""
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -15,20 +14,22 @@ import (
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
+	"github.com/tokenized/pkg/storage"
 )
 
 func Test_Initiate(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
+	store := storage.NewMockStorage()
 	peerChannelsFactory := peer_channels.NewFactory()
 
 	/******************************** Create User 1 Client ****************************************/
 	/**********************************************************************************************/
-	client1 := MockClient(ctx, peerChannelsFactory)
-	user1PublicChannel, err := client1.CreatePublicChannel(ctx)
+	client1 := MockClient(ctx, store, peerChannelsFactory)
+	user1PublicChannel, err := client1.CreateRelationshipInitiationChannel(ctx)
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
 	}
-	user1Channel, err := client1.CreatePrivateChannel(ctx)
+	user1Channel, err := client1.CreateRelationshipChannel(ctx)
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
 	}
@@ -39,13 +40,13 @@ func Test_Initiate(t *testing.T) {
 
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
-	client2 := MockClient(ctx, peerChannelsFactory)
-	user2Channel, err := client2.CreatePrivateChannel(ctx)
+	client2 := MockClient(ctx, store, peerChannelsFactory)
+	user2Channel, err := client2.CreateRelationshipChannel(ctx)
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
 	}
 
-	if err := user2Channel.SetExternalPeerChannels(user1PublicChannel.IncomingPeerChannels()); err != nil {
+	if err := user2Channel.SetOutgoingPeerChannels(user1PublicChannel.IncomingPeerChannels()); err != nil {
 		t.Fatalf("Failed to set peer channels : %s", err)
 	}
 
@@ -104,9 +105,12 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to create script : %s", err)
 	}
 
-	initHash := bitcoin.Hash32(sha256.Sum256(script))
-
-	if err := user2Channel.SendMessage(ctx, script); err != nil {
+	initiationMessage, err := user2Channel.NewMessage(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create a new message : %s", err)
+	}
+	initiationMessage.SetPayload(script)
+	if err := user2Channel.SendMessage(ctx, initiationMessage); err != nil {
 		t.Fatalf("Failed to send initiation : %s", err)
 	}
 
@@ -128,7 +132,7 @@ func Test_Initiate(t *testing.T) {
 	for _, channelMessage := range user1Messages {
 		message := channelMessage.Message
 
-		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload))
+		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload()))
 		if err != nil {
 			t.Fatalf("Failed to parse envelope : %s", err)
 		}
@@ -175,7 +179,7 @@ func Test_Initiate(t *testing.T) {
 				initiation.PeerChannels[0].ID, user2Channel.IncomingPeerChannels()[0].ID)
 		}
 
-		if err := user1Channel.Initialize(ctx, initiation); err != nil {
+		if err := user1Channel.InitializeRelationship(ctx, initiation); err != nil {
 			t.Fatalf("Failed to initialize channel : %s", err)
 		}
 
@@ -193,12 +197,11 @@ func Test_Initiate(t *testing.T) {
 		}
 
 		response := &channels.Response{
-			MessageHash: bitcoin.Hash32(sha256.Sum256(message.Payload)),
+			MessageID: message.ID(),
 		}
 
-		if !response.MessageHash.Equal(&initHash) {
-			t.Errorf("Wrong message hash for response : got %s, want %s", response.MessageHash,
-				initHash)
+		if response.MessageID != 0 {
+			t.Errorf("Wrong message id for response : got %d, want %d", response.MessageID, 0)
 		}
 
 		responsePayload, err = response.Wrap(responsePayload)
@@ -224,7 +227,12 @@ func Test_Initiate(t *testing.T) {
 			t.Fatalf("Failed to create script : %s", err)
 		}
 
-		if err := user1Channel.SendMessage(ctx, script); err != nil {
+		responseMessage, err := user1Channel.NewMessage(ctx)
+		if err != nil {
+			t.Fatalf("Failed to create a new message : %s", err)
+		}
+		responseMessage.SetPayload(script)
+		if err := user1Channel.SendMessage(ctx, responseMessage); err != nil {
 			t.Fatalf("Failed to send initiation : %s", err)
 		}
 	}
@@ -251,7 +259,7 @@ func Test_Initiate(t *testing.T) {
 	for _, channelMessage := range user2Messages {
 		message := channelMessage.Message
 
-		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload))
+		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload()))
 		if err != nil {
 			t.Fatalf("Failed to parse envelope : %s", err)
 		}

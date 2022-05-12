@@ -46,8 +46,9 @@ type Entity struct {
 }
 
 type Identity struct {
-	Name     *string   `bsor:"2" json:"name,omitempty"`
-	Email    *string   `bsor:"3" json:"email,omitempty"`
+	Name     *string   `bsor:"1" json:"name,omitempty"`
+	Email    *string   `bsor:"2" json:"email,omitempty"`
+	URL      *string   `bsor:"3" json:"url,omitempty"`
 	Handle   *string   `bsor:"4" json:"handle,omitempty"`
 	Phone    *string   `bsor:"5" json:"phone,omitempty"`
 	Location *Location `bsor:"6" json:"location,omitempty"`

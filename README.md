@@ -1,5 +1,10 @@
 # Channels
 
+<div style="font-weight: bold; color: rgb(120,0,0) !important;">
+This software is still in early development and is prone to change in breaking ways without notice.
+</div>
+<br>
+
 Channels are a set of protocols designed to facilitate communication between users, agents, and services. Channels work on top of “peer channels”, but can work on IPv6 in the future as well. Default protocols for identification, authentication, encryption, and payment negotiation and settlement. Channels are designed to be more two directional than many existing systems like REST.
 
 Channels facilitate relationships between parties. They are initiated by exchanging “peer channels”, each party giving a channel URL and write token to the other party, but keeping the read tokens private. So the other party can write to your channel, but only you can read from your channel. This establishes two way communication. After the relationship is established either party can initiate a new conversation. This is crucial for user to user communication, but very important for service providers as well because they will want to collect fees before the current fee is exhausted or expires. Service providers will also benefit from the ability to deliver messages and data as they come in and not need to retain that data and provide a separate interface to feed that data to the clients.

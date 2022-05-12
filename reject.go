@@ -49,7 +49,7 @@ type RejectReason uint8
 
 // Reject is used to reject a previous message.
 type Reject struct {
-	MessageHash      bitcoin.Hash32      `bsor:"1" json:"message_hash"`
+	MessageID        uint64              `bsor:"1" json:"message_id"`
 	Reason           RejectReason        `bsor:"2" json:"reason"`
 	RejectProtocolID envelope.ProtocolID `bsor:"3" json:"protocol_id"`
 	Code             uint32              `bsor:"4" json:"code"` // Sub protocol specific codes

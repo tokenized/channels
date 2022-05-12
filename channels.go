@@ -57,20 +57,29 @@ func MessageHash(payload envelope.Data) bitcoin.Hash32 {
 type WrappedMessage struct {
 	Signature *Signature
 	Response  *Response
+	MessageID *MessageID
 	Message   ChannelsMessage
 }
 
-func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32,
-	responseHash *bitcoin.Hash32) (bitcoin.Script, error) {
+func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
+	responseID *uint64) (bitcoin.Script, error) {
 
 	payload, err := msg.Write()
 	if err != nil {
 		return nil, errors.Wrap(err, "write")
 	}
 
-	if responseHash != nil {
+	mID := &MessageID{
+		MessageID: messageID,
+	}
+	payload, err = mID.Wrap(payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "message id")
+	}
+
+	if responseID != nil {
 		response := &Response{
-			MessageHash: *responseHash,
+			MessageID: *responseID,
 		}
 		payload, err = response.Wrap(payload)
 		if err != nil {
@@ -106,6 +115,11 @@ func Unwrap(script []byte) (*WrappedMessage, error) {
 	result.Response, payload, err = ParseResponse(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "response")
+	}
+
+	result.MessageID, payload, err = ParseMessageID(payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "message id")
 	}
 
 	result.Message, err = parse(payload)

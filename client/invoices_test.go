@@ -14,15 +14,17 @@ import (
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
+	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/txbuilder"
 	"github.com/tokenized/pkg/wire"
 )
 
 func Test_Invoice(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
+	store := storage.NewMockStorage()
 	peerChannelsFactory := peer_channels.NewFactory()
 
-	merchant, buyer := MockRelatedUsers(ctx, peerChannelsFactory)
+	merchant, buyer := MockRelatedUsers(ctx, store, peerChannelsFactory)
 
 	merchantChannel := merchant.Channel(0)
 	merchantChannelKey := merchant.ChannelKey(merchantChannel)
@@ -113,18 +115,26 @@ func Test_Invoice(t *testing.T) {
 	js, _ := json.MarshalIndent(invoiceTx, "", "  ")
 	t.Logf("Invoice Tx : %s", js)
 
+	invoiceMessage, err := merchantChannel.NewMessage(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create a new message : %s", err)
+	}
+	if invoiceMessage.ID() != 0 {
+		t.Errorf("Wrong invoice message id : got %d, want %d", invoiceMessage.ID(), 0)
+	}
+
 	msgHash := wallet.GenerateHash("invoice_tx")
-	invoiceTxScript, err := channels.Wrap(invoiceTx, merchantChannelKey, msgHash, nil)
+	invoiceTxScript, err := channels.Wrap(invoiceTx, merchantChannelKey, msgHash,
+		invoiceMessage.ID(), nil)
 	if err != nil {
 		t.Fatalf("Failed to wrap invoice tx : %s", err)
 	}
 
 	t.Logf("Invoice script : %s", invoiceTxScript)
 
-	invoiceTxHash := bitcoin.Hash32(sha256.Sum256(invoiceTxScript))
-	t.Logf("Invoice hash : %s", invoiceTxHash)
+	invoiceMessage.SetPayload(invoiceTxScript)
 
-	if err := merchantChannel.SendMessage(ctx, invoiceTxScript); err != nil {
+	if err := merchantChannel.SendMessage(ctx, invoiceMessage); err != nil {
 		t.Fatalf("Failed to send invoice : %s", err)
 	}
 
@@ -144,7 +154,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err := channels.Unwrap(buyerMessages[0].Message.Payload)
+	wMessage, err := channels.Unwrap(buyerMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -202,30 +212,42 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(payment, "", "  ")
 	t.Logf("Invoice Payment : %s", js)
 
-	responseHash := bitcoin.Hash32(sha256.Sum256(buyerMessages[0].Message.Payload))
-	t.Logf("Invoice tx response hash : %s", responseHash)
+	t.Logf("Invoice tx id : %d", buyerMessages[0].Message.ID())
 
-	if !invoiceTxHash.Equal(&responseHash) {
-		t.Errorf("Wrong invoice response hash : got %s, want %s", responseHash, invoiceTxHash)
+	if invoiceMessage.ID() != buyerMessages[0].Message.ID() {
+		t.Errorf("Wrong invoice response id : got %d, want %d", invoiceMessage.ID(),
+			buyerMessages[0].Message.ID())
 	}
 
 	msgHash = wallet.GenerateHash("payment_tx")
-	paymentScript, err := channels.Wrap(payment, buyerChannelKey, msgHash, &responseHash)
+
+	paymentMessage, err := buyerChannel.NewMessage(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create a new message : %s", err)
+	}
+	if paymentMessage.ID() != 0 {
+		t.Errorf("Wrong payment message id : got %d, want %d", paymentMessage.ID(), 0)
+	}
+
+	responseID := buyerMessages[0].Message.ID()
+	paymentScript, err := channels.Wrap(payment, buyerChannelKey, msgHash, paymentMessage.ID(),
+		&responseID)
 	if err != nil {
 		t.Fatalf("Failed to wrap invoice payment : %s", err)
 	}
 
 	t.Logf("Payment script : %s", paymentScript)
+	paymentMessage.SetPayload(paymentScript)
 
 	paymentHash := bitcoin.Hash32(sha256.Sum256(paymentScript))
 	t.Logf("Payment hash : %s", paymentHash)
 
-	if err := buyerChannel.SendMessage(ctx, paymentScript); err != nil {
+	if err := buyerChannel.SendMessage(ctx, paymentMessage); err != nil {
 		t.Fatalf("Failed to send invoice payment : %s", err)
 	}
 
 	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
-		buyerMessages[0].Message.Hash()); err != nil {
+		buyerMessages[0].Message.ID()); err != nil {
 		t.Fatalf("Failed to mark message as processed : %s", err)
 	}
 
@@ -245,7 +267,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(merchantMessages), 1)
 	}
 
-	wMessage, err = channels.Unwrap(merchantMessages[0].Message.Payload)
+	wMessage, err = channels.Unwrap(merchantMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -254,9 +276,9 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Payment is not a response")
 	}
 
-	if !wMessage.Response.MessageHash.Equal(&invoiceTxHash) {
-		t.Fatalf("Payment response hash is wrong : got %s, want %s", wMessage.Response.MessageHash,
-			invoiceTxHash)
+	if wMessage.Response.MessageID != invoiceMessage.ID() {
+		t.Fatalf("Payment response id is wrong : got %d, want %d", wMessage.Response.MessageID,
+			invoiceMessage.ID())
 	}
 
 	receivedInvoicePayment, ok := wMessage.Message.(*channels.InvoicePayment)
@@ -272,26 +294,35 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(paymentAccept, "", "  ")
 	t.Logf("Invoice Payment Accept : %s", js)
 
-	responseHash = bitcoin.Hash32(sha256.Sum256(merchantMessages[0].Message.Payload))
-
 	msgHash = wallet.GenerateHash("payment_accept")
+
+	paymentAcceptMessage, err := merchantChannel.NewMessage(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create a new message : %s", err)
+	}
+	if paymentAcceptMessage.ID() != 1 {
+		t.Errorf("Wrong payment accept message id : got %d, want %d", paymentAcceptMessage.ID(), 1)
+	}
+
+	responseID = merchantMessages[0].Message.ID()
 	paymentAcceptScript, err := channels.Wrap(paymentAccept, merchantChannelKey, msgHash,
-		&responseHash)
+		paymentAcceptMessage.ID(), &responseID)
 	if err != nil {
 		t.Fatalf("Failed to wrap invoice payment accept : %s", err)
 	}
 
 	t.Logf("Payment Accept script : %s", paymentAcceptScript)
+	paymentAcceptMessage.SetPayload(paymentAcceptScript)
 
 	paymentAcceptHash := bitcoin.Hash32(sha256.Sum256(invoiceTxScript))
 	t.Logf("Payment Accept hash : %s", paymentAcceptHash)
 
-	if err := merchantChannel.SendMessage(ctx, paymentAcceptScript); err != nil {
+	if err := merchantChannel.SendMessage(ctx, paymentAcceptMessage); err != nil {
 		t.Fatalf("Failed to send invoice payment accept : %s", err)
 	}
 
 	if err := merchantMessages[0].Channel.MarkMessageProcessed(ctx,
-		merchantMessages[0].Message.Hash()); err != nil {
+		merchantMessages[0].Message.ID()); err != nil {
 		t.Fatalf("Failed to mark message as processed : %s", err)
 	}
 
@@ -311,7 +342,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err = channels.Unwrap(buyerMessages[0].Message.Payload)
+	wMessage, err = channels.Unwrap(buyerMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -320,9 +351,9 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Payment accept is not a response")
 	}
 
-	if !wMessage.Response.MessageHash.Equal(&paymentHash) {
-		t.Fatalf("Payment accept response hash is wrong : got %s, want %s",
-			wMessage.Response.MessageHash, paymentHash)
+	if wMessage.Response.MessageID != paymentMessage.ID() {
+		t.Fatalf("Payment accept response id is wrong : got %d, want %d",
+			wMessage.Response.MessageID, paymentMessage.ID())
 	}
 
 	receivedPaymentAccept, ok := wMessage.Message.(*channels.InvoicePaymentAccept)
@@ -334,7 +365,7 @@ func Test_Invoice(t *testing.T) {
 	t.Logf("Received Payment Accept : %s", js)
 
 	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
-		buyerMessages[0].Message.Hash()); err != nil {
+		buyerMessages[0].Message.ID()); err != nil {
 		t.Fatalf("Failed to mark message as processed : %s", err)
 	}
 
@@ -351,14 +382,25 @@ func Test_Invoice(t *testing.T) {
 	t.Logf("Merkle Proof : %s", js)
 
 	msgHash = wallet.GenerateHash("payment_tx")
-	merkleProofScript, err := channels.Wrap(merkleProof, buyerChannelKey, msgHash, nil)
+
+	merkleProofMessage, err := merchantChannel.NewMessage(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create a new message : %s", err)
+	}
+	if merkleProofMessage.ID() != 2 {
+		t.Errorf("Wrong merkle proof message id : got %d, want %d", merkleProofMessage.ID(), 2)
+	}
+
+	merkleProofScript, err := channels.Wrap(merkleProof, buyerChannelKey, msgHash,
+		merkleProofMessage.ID(), nil)
 	if err != nil {
 		t.Fatalf("Failed to wrap Merkle Proof : %s", err)
 	}
 
 	t.Logf("Merkle Proof script : %s", merkleProofScript)
+	merkleProofMessage.SetPayload(merkleProofScript)
 
-	if err := buyerChannel.SendMessage(ctx, merkleProofScript); err != nil {
+	if err := merchantChannel.SendMessage(ctx, merkleProofMessage); err != nil {
 		t.Fatalf("Failed to send Merkle Proof : %s", err)
 	}
 
@@ -369,16 +411,16 @@ func Test_Invoice(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 250)
 
-	merchantMessages, err = merchant.GetUnprocessedMessages(ctx)
+	buyerMessages, err = buyer.GetUnprocessedMessages(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
 
-	if len(merchantMessages) != 1 {
-		t.Fatalf("Wrong message count : got %d, want %d", len(merchantMessages), 1)
+	if len(buyerMessages) != 1 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err = channels.Unwrap(merchantMessages[0].Message.Payload)
+	wMessage, err = channels.Unwrap(buyerMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -395,8 +437,8 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(receivedMerkleProof, "", "  ")
 	t.Logf("Received Merkle Proof : %s", js)
 
-	if err := merchantMessages[0].Channel.MarkMessageProcessed(ctx,
-		merchantMessages[0].Message.Hash()); err != nil {
+	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
+		buyerMessages[0].Message.ID()); err != nil {
 		t.Fatalf("Failed to mark message as processed : %s", err)
 	}
 

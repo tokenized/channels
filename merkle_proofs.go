@@ -6,7 +6,6 @@ import (
 
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/merkle_proof"
 
 	"github.com/pkg/errors"
@@ -42,11 +41,11 @@ func (m *MerkleProof) Write() (envelope.Data, error) {
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(MerkleProofVersion))}
 
 	// Message
-	msgScriptItems, err := bsor.Marshal(m)
+	b, err := m.MerkleProof.MarshalBinary()
 	if err != nil {
-		return envelope.Data{}, errors.Wrap(err, "marshal")
+		return envelope.Data{}, errors.Wrap(err, "marshal binary")
 	}
-	payload = append(payload, msgScriptItems...)
+	payload = append(payload, bitcoin.NewPushDataScriptItem(b))
 
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDMerkleProof}, payload}, nil
 }
@@ -72,8 +71,13 @@ func ParseMerkleProof(payload envelope.Data) (*MerkleProof, error) {
 	}
 
 	result := &MerkleProof{}
-	if _, err := bsor.Unmarshal(payload.Payload[1:], result); err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
+	if payload.Payload[1].Type != bitcoin.ScriptItemTypePushData {
+		return nil, errors.Wrapf(ErrInvalidMerkleProof, "not push data")
+	}
+
+	result.MerkleProof = &merkle_proof.MerkleProof{}
+	if err := result.MerkleProof.UnmarshalBinary(payload.Payload[1].Data); err != nil {
+		return nil, errors.Wrap(err, "unmarshal binary")
 	}
 
 	return result, nil

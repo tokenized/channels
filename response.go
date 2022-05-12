@@ -6,7 +6,6 @@ import (
 
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/bsor"
 
 	"github.com/pkg/errors"
 )
@@ -21,11 +20,11 @@ var (
 
 // Response is used to identify that a message is in response to a previous message.
 type Response struct {
-	MessageHash bitcoin.Hash32 `bsor:"1" json:"message_hash"`
+	MessageID uint64 `bsor:"-" json:"message_id"`
 }
 
-func (*Response) IsResponseType() {}
-func (*Response) IsWrapperType()  {}
+func (*Response) IsWrapperType() {}
+
 func (*Response) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDResponse
 }
@@ -35,11 +34,7 @@ func (r *Response) Wrap(payload envelope.Data) (envelope.Data, error) {
 	scriptItems := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(ResponseVersion))}
 
 	// Message
-	msgScriptItems, err := bsor.Marshal(r)
-	if err != nil {
-		return payload, errors.Wrap(err, "marshal")
-	}
-	scriptItems = append(scriptItems, msgScriptItems...)
+	scriptItems = append(scriptItems, bitcoin.PushNumberScriptItemUnsigned(r.MessageID))
 
 	payload.ProtocolIDs = append(envelope.ProtocolIDs{ProtocolIDResponse}, payload.ProtocolIDs...)
 	payload.Payload = append(scriptItems, payload.Payload...)
@@ -67,11 +62,14 @@ func ParseResponse(payload envelope.Data) (*Response, envelope.Data, error) {
 			fmt.Sprintf("response: %d", version))
 	}
 
-	result := &Response{}
-	payload.Payload, err = bsor.Unmarshal(payload.Payload[1:], result)
+	value, err := bitcoin.ScriptNumberValueUnsigned(payload.Payload[1])
 	if err != nil {
-		return nil, payload, errors.Wrap(err, "unmarshal")
+		return nil, payload, errors.Wrap(err, "value")
+	}
+	result := &Response{
+		MessageID: value,
 	}
 
+	payload.Payload = payload.Payload[2:]
 	return result, payload, nil
 }
