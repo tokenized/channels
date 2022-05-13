@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"sync"
@@ -12,7 +11,6 @@ import (
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/merkle_proof"
-	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -28,19 +26,6 @@ type Tx struct {
 	MerkleProofs []*merkle_proof.MerkleProof `bsor:"2" json:"merkle_proofs,omitempty"`
 
 	lock sync.RWMutex
-}
-
-func (w *Wallet) FetchTx(ctx context.Context, txid bitcoin.Hash32) (*Tx, error) {
-	tx := &Tx{}
-	if err := storage.Load(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, txid), tx); err != nil {
-		return nil, errors.Wrap(err, "storage")
-	}
-
-	return tx, nil
-}
-
-func (w *Wallet) SaveTx(ctx context.Context, tx *Tx) error {
-	return storage.Save(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, tx.Tx.TxHash()), tx)
 }
 
 func (tx *Tx) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) error {

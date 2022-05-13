@@ -11,6 +11,7 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
+	"github.com/tokenized/pkg/json_envelope"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/wire"
 
@@ -321,9 +322,9 @@ type Outputs []*Output
 // confirmed then the merkle proof should be provided with the tx embedded in it, otherwise the
 // tx with miner responses should be provided and the ancestors included in the same expanded tx.
 type AncestorTx struct {
-	MerkleProof    *merkle_proof.MerkleProof `bsor:"1" json:"merkle_proof,omitempty"`
-	Tx             *wire.MsgTx               `bsor:"2" json:"tx,omitempty"`              // marshals as raw bytes
-	MinerResponses []string                  `bsor:"3" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
+	MerkleProof    *merkle_proof.MerkleProof    `bsor:"1" json:"merkle_proof,omitempty"`
+	Tx             *wire.MsgTx                  `bsor:"2" json:"tx,omitempty"`              // marshals as raw bytes
+	MinerResponses []json_envelope.JSONEnvelope `bsor:"3" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
 }
 
 type AncestorTxs []*AncestorTx

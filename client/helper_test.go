@@ -100,6 +100,7 @@ func MockMerkleProof(tx *wire.MsgTx) *merkle_proof.MerkleProof {
 	for i := 0; i < txCount; i++ {
 		if i == offset {
 			tree.AddHash(txid)
+			continue
 		}
 
 		var otherTxid bitcoin.Hash32

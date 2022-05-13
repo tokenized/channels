@@ -1,9 +1,6 @@
 # Channels
 
-<div style="font-weight: bold; color: rgb(120,0,0) !important;">
-This software is still in early development and is prone to change in breaking ways without notice.
-</div>
-<br>
+***This software is still in early development and is prone to change in breaking ways without notice.***
 
 Channels are a set of protocols designed to facilitate communication between users, agents, and services. Channels work on top of “peer channels”, but can work on IPv6 in the future as well. Default protocols for identification, authentication, encryption, and payment negotiation and settlement. Channels are designed to be more two directional than many existing systems like REST.
 

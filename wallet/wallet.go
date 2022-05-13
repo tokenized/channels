@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"sync"
 
+	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/logger"
@@ -25,10 +26,13 @@ const (
 )
 
 var (
-	ErrUnsupportedVersion  = errors.New("Unsupported Version")
-	ErrOutputAlreadySpent  = errors.New("Output Already Spent")
-	ErrUnknownTx           = errors.New("Unknown Tx")
-	ErrMissingBlockHash    = errors.New("Missing Block Hash")
+	ErrUnsupportedVersion = errors.New("Unsupported Version")
+	ErrOutputAlreadySpent = errors.New("Output Already Spent")
+	ErrUnknownTx          = errors.New("Unknown Tx")
+	ErrMissingBlockHash   = errors.New("Missing Block Hash")
+	ErrContextIDNotFound  = errors.New("Context ID Not Found")
+	ErrUnknownHeader      = errors.New("Unkown Header")
+
 	AlreadyHaveMerkleProof = errors.New("Already Have Merkle Proof")
 
 	endian = binary.LittleEndian
@@ -36,13 +40,15 @@ var (
 
 type Wallet struct {
 	baseKey       bitcoin.Key
-	BasePublicKey bitcoin.PublicKey `bsor:"1" json:"public_key"`
+	BasePublicKey bitcoin.PublicKey
 
-	KeySet  KeySet  `bsor:"2" json:"keys"`
-	Outputs Outputs `bsor:"3" json:"outputs"`
+	KeySet  KeySet
+	Outputs Outputs
 
-	config Config
-	store  storage.Storage
+	config              Config
+	store               storage.Storage
+	merkleProofVerifier MerkleProofVerifier
+	feeQuoter           FeeQuoter
 
 	lock sync.RWMutex
 }
@@ -54,17 +60,38 @@ type Config struct {
 	BreakCount        int     `json:"break_count"`
 }
 
-func NewWallet(config Config, store storage.Storage, key bitcoin.Key) *Wallet {
+type MerkleProofVerifier interface {
+	// VerifyMerkleProof finds the header in the block chain and verifies that the merkle proof is
+	// properly linked to that block. It returns the block height and if it is in the longest chain.
+	// It is possible that the merkle proof is valid, but linked to an orphaned block, or at least a
+	// block that is not currently in the most proof of work chain. These merkle proofs should still
+	// be retained as they may become part of the most proof of work chain later and at least show
+	// that the tx was at one point accepted by a miner.
+	VerifyMerkleProof(ctx context.Context, proof *merkle_proof.MerkleProof) (int, bool, error)
+}
+
+type FeeQuoter interface {
+	// GetFeeQuotes retrieves an up to date fee quote to be used for applying a fee to a new tx.
+	GetFeeQuotes(ctx context.Context) (channels.FeeQuotes, error)
+}
+
+func NewWallet(config Config, store storage.Storage, merkleProofVerifier MerkleProofVerifier,
+	feeQuoter FeeQuoter, key bitcoin.Key) *Wallet {
 	return &Wallet{
-		config:  config,
-		store:   store,
-		baseKey: key,
+		config:              config,
+		store:               store,
+		merkleProofVerifier: merkleProofVerifier,
+		feeQuoter:           feeQuoter,
+		baseKey:             key,
+		KeySet:              make(map[bitcoin.Hash32]Keys),
 	}
 }
 
 // CreateBitcoinReceive creates a transaction receiving the specified amount of bitcoin.
-func (w *Wallet) CreateBitcoinReceive(ctx context.Context, value uint64) (*wire.MsgTx, error) {
-	keys, err := w.GenerateKeys("bitcoin receive", w.config.BreakCount)
+func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Hash32,
+	value uint64) (*wire.MsgTx, error) {
+
+	keys, err := w.GenerateKeys(contextID, w.config.BreakCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "keys")
 	}
@@ -88,14 +115,32 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, value uint64) (*wire.
 	return tx, nil
 }
 
-func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, keys Keys) error {
+func (w *Wallet) fetchTx(ctx context.Context, txid bitcoin.Hash32) (*Tx, error) {
+	tx := &Tx{}
+	if err := storage.Load(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, txid), tx); err != nil {
+		return nil, errors.Wrap(err, "storage")
+	}
+
+	return tx, nil
+}
+
+func (w *Wallet) saveTx(ctx context.Context, tx *Tx) error {
+	return storage.Save(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, tx.Tx.TxHash()), tx)
+}
+
+func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Hash32) error {
 	txid := *tx.TxHash()
 
 	w.lock.Lock()
 	defer w.lock.Unlock()
 
+	keys, exists := w.KeySet[contextID]
+	if !exists {
+		return errors.Wrap(ErrContextIDNotFound, contextID.String())
+	}
+
 	// Check if tx was already added.
-	walletTx, err := w.FetchTx(ctx, txid)
+	walletTx, err := w.fetchTx(ctx, txid)
 	if err != nil {
 		return errors.Wrap(err, "fetch tx")
 	}
@@ -150,7 +195,7 @@ func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, keys Keys) error {
 	walletTx = &Tx{
 		Tx: tx,
 	}
-	if err := w.SaveTx(ctx, walletTx); err != nil {
+	if err := w.saveTx(ctx, walletTx); err != nil {
 		return errors.Wrap(err, "save tx")
 	}
 
@@ -167,7 +212,7 @@ func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.M
 	defer w.lock.Unlock()
 
 	// Check if tx was already added.
-	walletTx, err := w.FetchTx(ctx, *txid)
+	walletTx, err := w.fetchTx(ctx, *txid)
 	if err != nil {
 		return errors.Wrap(err, "fetch tx")
 	}
@@ -182,7 +227,7 @@ func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.M
 		return errors.Wrap(err, "add merkle proof")
 	}
 
-	if err := w.SaveTx(ctx, walletTx); err != nil {
+	if err := w.saveTx(ctx, walletTx); err != nil {
 		return errors.Wrap(err, "save tx")
 	}
 

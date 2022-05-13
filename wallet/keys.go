@@ -11,22 +11,22 @@ import (
 )
 
 type Key struct {
-	Hash          bitcoin.Hash32 `bsor:"1" json:"hash"`
-	LockingScript bitcoin.Script `bsor:"-" json:"-"`
-	Key           bitcoin.Key    `bsor:"-" json:"-"`
+	Hash          bitcoin.Hash32 `json:"hash"`
+	LockingScript bitcoin.Script `json:"locking_script"`
+	Key           bitcoin.Key    `json:"key"`
 }
 
 type Keys []*Key
 
-type KeySet []Keys
+type KeySet map[bitcoin.Hash32]Keys
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.
-func (w *Wallet) GenerateKey(s string) (*Key, error) {
+func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
 	w.lock.RLock()
 	baseKey := w.baseKey
 	w.lock.RUnlock()
 
-	hash, key := GenerateHashKey(baseKey, s)
+	hash, key := GenerateHashKey(baseKey, contextID)
 
 	lockingScript, err := key.LockingScript()
 	if err != nil {
@@ -40,19 +40,19 @@ func (w *Wallet) GenerateKey(s string) (*Key, error) {
 	}
 
 	w.lock.Lock()
-	w.KeySet = append(w.KeySet, Keys{walletKey})
+	w.KeySet[contextID] = Keys{walletKey}
 	w.lock.Unlock()
 
 	return walletKey, nil
 }
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.
-func (w *Wallet) GenerateKeys(s string, count int) (Keys, error) {
+func (w *Wallet) GenerateKeys(contextID bitcoin.Hash32, count int) (Keys, error) {
 	w.lock.RLock()
 	baseKey := w.baseKey
 	w.lock.RUnlock()
 
-	hash := GenerateHash(s)
+	hash := GenerateHash(contextID)
 
 	result := make(Keys, count)
 	for i := range result {
@@ -84,15 +84,15 @@ func (w *Wallet) GenerateKeys(s string, count int) (Keys, error) {
 	}
 
 	w.lock.Lock()
-	w.KeySet = append(w.KeySet, result)
+	w.KeySet[contextID] = result
 	w.lock.Unlock()
 
 	return result, nil
 }
 
-func GenerateHashKey(baseKey bitcoin.Key, s string) (bitcoin.Hash32, bitcoin.Key) {
+func GenerateHashKey(baseKey bitcoin.Key, contextID bitcoin.Hash32) (bitcoin.Hash32, bitcoin.Key) {
 	for {
-		hash := GenerateHash(s)
+		hash := GenerateHash(contextID)
 		key, err := baseKey.AddHash(hash)
 		if err != nil {
 			continue // should only be out of range key
@@ -116,9 +116,9 @@ func IncrementHash(hash bitcoin.Hash32) bitcoin.Hash32 {
 }
 
 // GenerateHash creates a random hash value that is used to derive a new key.
-func GenerateHash(s string) bitcoin.Hash32 {
+func GenerateHash(contextID bitcoin.Hash32) bitcoin.Hash32 {
 	hasher := sha256.New()
-	hasher.Write([]byte(s))
+	hasher.Write(contextID[:])
 
 	randomBytes := make([]byte, bitcoin.Hash32Size)
 	rand.Read(randomBytes)
