@@ -16,6 +16,8 @@ import (
 type MockMerkleProofVerifier struct {
 	blocks map[bitcoin.Hash32]*mockMerkleBlock
 
+	currentTime time.Time
+
 	lock sync.Mutex
 }
 
@@ -26,7 +28,8 @@ type mockMerkleBlock struct {
 
 func NewMockMerkleProofVerifier() *MockMerkleProofVerifier {
 	return &MockMerkleProofVerifier{
-		blocks: make(map[bitcoin.Hash32]*mockMerkleBlock),
+		blocks:      make(map[bitcoin.Hash32]*mockMerkleBlock),
+		currentTime: time.Now().Add(-10 * time.Hour),
 	}
 }
 
@@ -34,11 +37,12 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
 	txids ...bitcoin.Hash32) []*merkle_proof.MerkleProof {
 
 	header := &wire.BlockHeader{
-		Timestamp: uint32(time.Now().Unix()),
+		Timestamp: uint32(m.currentTime.Unix()),
 		Bits:      0x1d00ffff,
 		Nonce:     rand.Uint32(),
 	}
 	rand.Read(header.PrevBlock[:])
+	m.currentTime = m.currentTime.Add(time.Minute * 10)
 
 	tree := merkle_proof.NewMerkleTree(true)
 
@@ -47,7 +51,7 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
 	for _, txid := range txids {
 		offsets = append(offsets, txCount)
 		tree.AddMerkleProof(txid)
-		txCount += rand.Intn(100)
+		txCount += 1 + rand.Intn(100)
 	}
 
 	offsetIndex := 0
@@ -63,6 +67,10 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
 		tree.AddHash(otherTxid)
 	}
 
+	if offsetIndex != len(offsets) {
+		panic("all offsets not hit")
+	}
+
 	merkleRoot, proofs := tree.FinalizeMerkleProofs()
 	copy(header.MerkleRoot[:], merkleRoot[:])
 
@@ -70,6 +78,7 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
 
 	for i, proof := range proofs {
 		proof.TxID = &txids[i]
+		proof.BlockHash = &bitcoin.Hash32{}
 		copy(proof.BlockHash[:], blockHash[:])
 	}
 

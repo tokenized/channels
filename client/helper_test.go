@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/peer_channels"
@@ -33,12 +34,12 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	}
 	clientB := MockClient(ctx, store, peerChannelsFactory)
 
-	channelA, err := clientA.CreateRelationshipChannel(ctx)
+	channelA, err := clientA.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create channel : %s", err))
 	}
 
-	channelB, err := clientB.CreateRelationshipChannel(ctx)
+	channelB, err := clientB.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create channel : %s", err))
 	}

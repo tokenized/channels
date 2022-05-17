@@ -14,7 +14,7 @@ func NewMockFeeQuoter() *MockFeeQuoter {
 	return &MockFeeQuoter{
 		current: channels.FeeQuotes{
 			{
-				FeeType: channels.FeeQuoteTypeStandard,
+				FeeType: channels.FeeTypeStandard,
 				MiningFee: channels.Fee{
 					Satoshis: 250,
 					Bytes:    1000,
@@ -25,7 +25,7 @@ func NewMockFeeQuoter() *MockFeeQuoter {
 				},
 			},
 			{
-				FeeType: channels.FeeQuoteTypeData,
+				FeeType: channels.FeeTypeData,
 				MiningFee: channels.Fee{
 					Satoshis: 100,
 					Bytes:    1000,

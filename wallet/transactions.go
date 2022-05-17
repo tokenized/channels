@@ -1,14 +1,11 @@
 package wallet
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"io"
 	"io/ioutil"
-	"sync"
 
-	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/wire"
@@ -24,8 +21,23 @@ const (
 type Tx struct {
 	Tx           *wire.MsgTx                 `bsor:"1" json:"tx"`
 	MerkleProofs []*merkle_proof.MerkleProof `bsor:"2" json:"merkle_proofs,omitempty"`
+}
 
-	lock sync.RWMutex
+func (tx Tx) GetMerkleProof(ctx context.Context,
+	verifier MerkleProofVerifier) (*merkle_proof.MerkleProof, error) {
+
+	for _, proof := range tx.MerkleProofs {
+		_, isLongest, err := verifier.VerifyMerkleProof(ctx, proof)
+		if err != nil {
+			return nil, errors.Wrap(err, "verify")
+		}
+
+		if isLongest {
+			return proof, nil
+		}
+	}
+
+	return nil, nil
 }
 
 func (tx *Tx) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) error {
@@ -45,29 +57,26 @@ func (tx *Tx) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.Merk
 		}
 	}
 
+	if merkleProof.Tx != nil {
+		merkleProof.TxID = merkleProof.Tx.TxHash()
+		merkleProof.Tx = nil
+	}
+
 	tx.MerkleProofs = append(tx.MerkleProofs, merkleProof)
 	return nil
 }
 
-func (tx *Tx) Serialize(w io.Writer) error {
-	tx.lock.RLock()
-	scriptItems, err := bsor.Marshal(tx)
+func (tx Tx) Serialize(w io.Writer) error {
+	b, err := bsor.MarshalBinary(tx)
 	if err != nil {
-		tx.lock.RUnlock()
 		return errors.Wrap(err, "bsor")
-	}
-	tx.lock.RUnlock()
-
-	script, err := scriptItems.Script()
-	if err != nil {
-		return errors.Wrap(err, "script")
 	}
 
 	if err := binary.Write(w, endian, txsVersion); err != nil {
 		return errors.Wrap(err, "version")
 	}
 
-	if _, err := w.Write(script); err != nil {
+	if _, err := w.Write(b); err != nil {
 		return errors.Wrap(err, "write")
 	}
 
@@ -80,25 +89,13 @@ func (tx *Tx) Deserialize(r io.Reader) error {
 		return errors.Wrap(err, "read")
 	}
 
-	var version uint8
-	if err := binary.Read(r, endian, &version); err != nil {
-		return errors.Wrap(err, "version")
-	}
-	if version != 0 {
+	if b[0] != 0 { // version
 		return errors.Wrap(ErrUnsupportedVersion, "tx")
 	}
 
-	scriptItems, err := bitcoin.ParseScriptItems(bytes.NewReader(b), -1)
-	if err != nil {
-		return errors.Wrap(err, "script")
-	}
-
-	tx.lock.Lock()
-	if _, err := bsor.Unmarshal(scriptItems, tx); err != nil {
-		tx.lock.Unlock()
+	if _, err := bsor.UnmarshalBinary(b[1:], tx); err != nil {
 		return errors.Wrap(err, "bsor")
 	}
-	tx.lock.Unlock()
 
 	return nil
 }

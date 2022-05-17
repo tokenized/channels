@@ -11,8 +11,6 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
-	"github.com/tokenized/pkg/json_envelope"
-	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -38,9 +36,6 @@ const (
 	PeriodTypeWeek        = PeriodType(5)
 	PeriodTypeMonth       = PeriodType(6)
 	PeriodTypeYear        = PeriodType(7)
-
-	FeeQuoteTypeStandard = "standard"
-	FeeQuoteTypeData     = "data" // only bytes in scripts that start with OP_RETURN or OP_FALSE, OP_RETURN
 )
 
 var (
@@ -217,19 +212,6 @@ type InvoiceTx struct {
 	Fees FeeQuotes  `bsor:"2" json:"fees"` // tx fee requirements
 }
 
-type FeeQuote struct {
-	FeeType   string `bsor:"1" json:"feeType"`
-	MiningFee Fee    `bsor:"2" json:"miningFee"`
-	RelayFee  Fee    `bsor:"3" json:"relayFee"`
-}
-
-type FeeQuotes []*FeeQuote
-
-type Fee struct {
-	Satoshis uint64 `bsor:"1" json:"satoshis"`
-	Bytes    uint64 `bsor:"2" json:"bytes"`
-}
-
 func (*InvoiceTx) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDInvoices
 }
@@ -310,24 +292,16 @@ type ExpandedTx struct {
 	Ancestors AncestorTxs `bsor:"2" json:"ancestors,omitempty"` // ancestor history of outputs up to merkle proofs
 }
 
-// Output is a Bitcoin transaction output that is spent.
-type Output struct {
-	Value         uint64         `bsor:"1" json:"value"`
-	LockingScript bitcoin.Script `bsor:"2" json:"locking_script"`
+func (etx ExpandedTx) String() string {
+	result := &bytes.Buffer{}
+	if etx.Tx != nil {
+		result.Write([]byte(fmt.Sprintf("%s\n", etx.Tx.String())))
+	}
+
+	result.Write([]byte(etx.Ancestors.String()))
+
+	return string(result.Bytes())
 }
-
-type Outputs []*Output
-
-// AncestorTx is a tx containing a spent output contained in an expanded tx or an ancestor. If it is
-// confirmed then the merkle proof should be provided with the tx embedded in it, otherwise the
-// tx with miner responses should be provided and the ancestors included in the same expanded tx.
-type AncestorTx struct {
-	MerkleProof    *merkle_proof.MerkleProof    `bsor:"1" json:"merkle_proof,omitempty"`
-	Tx             *wire.MsgTx                  `bsor:"2" json:"tx,omitempty"`              // marshals as raw bytes
-	MinerResponses []json_envelope.JSONEnvelope `bsor:"3" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
-}
-
-type AncestorTxs []*AncestorTx
 
 // Item is something that can be included in an invoice. Commonly a product or service.
 type Item struct {

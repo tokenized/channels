@@ -119,7 +119,9 @@ func GetWriteToken(peerChannel *peer_channels.Channel) string {
 
 // CreatePublicChannel creates a new channel to share publicly so other users can initiation
 // relationships. Those relationships will be
-func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context) (*Channel, error) {
+func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
+	contextID bitcoin.Hash32) (*Channel, error) {
+
 	account := c.Account()
 	peerClient, err := c.peerChannelsFactory.NewClient(account.BaseURL)
 	if err != nil {
@@ -138,7 +140,7 @@ func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context) (*Chan
 		},
 	}
 
-	hash, _ := wallet.GenerateHashKey(c.BaseKey(), "test")
+	hash, _ := wallet.GenerateHashKey(c.BaseKey(), contextID)
 	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, peerChannels, c.store,
 		c.peerChannelsFactory)
 
@@ -149,7 +151,9 @@ func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context) (*Chan
 	return channel, nil
 }
 
-func (c *Client) CreateRelationshipChannel(ctx context.Context) (*Channel, error) {
+func (c *Client) CreateRelationshipChannel(ctx context.Context,
+	contextID bitcoin.Hash32) (*Channel, error) {
+
 	account := c.Account()
 	peerClient, err := c.peerChannelsFactory.NewClient(account.BaseURL)
 	if err != nil {
@@ -169,7 +173,7 @@ func (c *Client) CreateRelationshipChannel(ctx context.Context) (*Channel, error
 		},
 	}
 
-	hash, _ := wallet.GenerateHashKey(c.BaseKey(), "test")
+	hash, _ := wallet.GenerateHashKey(c.BaseKey(), contextID)
 	channel := NewChannel(ChannelTypeRelationship, hash, peerChannels, c.store,
 		c.peerChannelsFactory)
 

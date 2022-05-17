@@ -103,7 +103,7 @@ func Test_Invoice(t *testing.T) {
 		},
 		Fees: channels.FeeQuotes{
 			{
-				FeeType: channels.FeeQuoteTypeStandard,
+				FeeType: channels.FeeTypeStandard,
 				MiningFee: channels.Fee{
 					Satoshis: 500,
 					Bytes:    1000,
@@ -123,7 +123,7 @@ func Test_Invoice(t *testing.T) {
 		t.Errorf("Wrong invoice message id : got %d, want %d", invoiceMessage.ID(), 0)
 	}
 
-	msgHash := wallet.GenerateHash("invoice_tx")
+	msgHash := wallet.RandomHash()
 	invoiceTxScript, err := channels.Wrap(invoiceTx, merchantChannelKey, msgHash,
 		invoiceMessage.ID(), nil)
 	if err != nil {
@@ -219,7 +219,7 @@ func Test_Invoice(t *testing.T) {
 			buyerMessages[0].Message.ID())
 	}
 
-	msgHash = wallet.GenerateHash("payment_tx")
+	msgHash = wallet.RandomHash()
 
 	paymentMessage, err := buyerChannel.NewMessage(ctx)
 	if err != nil {
@@ -294,7 +294,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(paymentAccept, "", "  ")
 	t.Logf("Invoice Payment Accept : %s", js)
 
-	msgHash = wallet.GenerateHash("payment_accept")
+	msgHash = wallet.RandomHash()
 
 	paymentAcceptMessage, err := merchantChannel.NewMessage(ctx)
 	if err != nil {
@@ -381,7 +381,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(merkleProof, "", "  ")
 	t.Logf("Merkle Proof : %s", js)
 
-	msgHash = wallet.GenerateHash("payment_tx")
+	msgHash = wallet.RandomHash()
 
 	merkleProofMessage, err := merchantChannel.NewMessage(ctx)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/wallet"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
@@ -25,11 +26,11 @@ func Test_Initiate(t *testing.T) {
 	/******************************** Create User 1 Client ****************************************/
 	/**********************************************************************************************/
 	client1 := MockClient(ctx, store, peerChannelsFactory)
-	user1PublicChannel, err := client1.CreateRelationshipInitiationChannel(ctx)
+	user1PublicChannel, err := client1.CreateRelationshipInitiationChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
 	}
-	user1Channel, err := client1.CreateRelationshipChannel(ctx)
+	user1Channel, err := client1.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
 	}
@@ -41,7 +42,7 @@ func Test_Initiate(t *testing.T) {
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
 	client2 := MockClient(ctx, store, peerChannelsFactory)
-	user2Channel, err := client2.CreateRelationshipChannel(ctx)
+	user2Channel, err := client2.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
 	}

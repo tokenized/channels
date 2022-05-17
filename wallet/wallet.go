@@ -32,32 +32,20 @@ var (
 	ErrMissingBlockHash   = errors.New("Missing Block Hash")
 	ErrContextIDNotFound  = errors.New("Context ID Not Found")
 	ErrUnknownHeader      = errors.New("Unkown Header")
+	ErrMissingAncestor    = errors.New("Missing Ancestor")
+	ErrNotMostPOW         = errors.New("Not Most POW")
 
 	AlreadyHaveMerkleProof = errors.New("Already Have Merkle Proof")
 
 	endian = binary.LittleEndian
 )
 
-type Wallet struct {
-	baseKey       bitcoin.Key
-	BasePublicKey bitcoin.PublicKey
-
-	KeySet  KeySet
-	Outputs Outputs
-
-	config              Config
-	store               storage.Storage
-	merkleProofVerifier MerkleProofVerifier
-	feeQuoter           FeeQuoter
-
-	lock sync.RWMutex
-}
-
 type Config struct {
-	FeeRate           float32 `json:"fee_rate"`
-	DustFeeRate       float32 `json:"dust_fee_rate"`
-	SatoshiBreakValue uint64  `json:"satoshi_break_value"`
-	BreakCount        int     `json:"break_count"`
+	// SatoshiBreakValue is the lowest number used to split up satoshi values.
+	SatoshiBreakValue uint64 `default:"10000" json:"satoshi_break_value"`
+
+	// BreakCount is the most pieces a satoshi or token value will be broken into.
+	BreakCount int `default:"5" json:"break_count"`
 }
 
 type MerkleProofVerifier interface {
@@ -75,6 +63,21 @@ type FeeQuoter interface {
 	GetFeeQuotes(ctx context.Context) (channels.FeeQuotes, error)
 }
 
+type Wallet struct {
+	baseKey       bitcoin.Key
+	BasePublicKey bitcoin.PublicKey
+
+	KeySet  KeySet
+	Outputs Outputs
+
+	config              Config
+	store               storage.Storage
+	merkleProofVerifier MerkleProofVerifier
+	feeQuoter           FeeQuoter
+
+	lock sync.RWMutex
+}
+
 func NewWallet(config Config, store storage.Storage, merkleProofVerifier MerkleProofVerifier,
 	feeQuoter FeeQuoter, key bitcoin.Key) *Wallet {
 	return &Wallet{
@@ -89,7 +92,12 @@ func NewWallet(config Config, store storage.Storage, merkleProofVerifier MerkleP
 
 // CreateBitcoinReceive creates a transaction receiving the specified amount of bitcoin.
 func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Hash32,
-	value uint64) (*wire.MsgTx, error) {
+	value uint64) (*channels.ExpandedTx, error) {
+
+	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "fee quotes")
+	}
 
 	keys, err := w.GenerateKeys(contextID, w.config.BreakCount)
 	if err != nil {
@@ -102,22 +110,103 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 	}
 
 	outputs, err := txbuilder.BreakValueLockingScripts(value, w.config.SatoshiBreakValue,
-		lockingScripts, w.config.DustFeeRate, w.config.FeeRate, false, false)
+		lockingScripts, feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate(),
+		feeQuotes.GetQuote(channels.FeeTypeStandard).MiningFee.Rate(), false, false)
 	if err != nil {
 		return nil, errors.Wrap(err, "break value")
 	}
 
-	tx := wire.NewMsgTx(1)
-	for _, output := range outputs {
-		tx.AddTxOut(&output.TxOut)
+	etx := &channels.ExpandedTx{
+		Tx: wire.NewMsgTx(1),
 	}
 
-	return tx, nil
+	for _, output := range outputs {
+		etx.Tx.AddTxOut(&output.TxOut)
+	}
+
+	if err := w.PopulateExpandedTx(ctx, etx); err != nil {
+		return nil, errors.Wrap(err, "populate")
+	}
+
+	return etx, nil
+}
+
+func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx) error {
+
+	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
+	if err != nil {
+		return errors.Wrap(err, "fee quotes")
+	}
+
+	miningFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).MiningFee.Rate()
+	relayFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate()
+
+	txb, err := txbuilder.NewTxBuilderFromWire(miningFeeRate, relayFeeRate, etx.Tx,
+		etx.Ancestors.GetTxs())
+
+	utxos, err := w.SelectUTXOs(ctx, contextID, etx)
+	if err != nil {
+		return errors.Wrap(err, "utxos")
+	}
+
+	changeKeys, err := w.GenerateKeys(contextID, w.config.BreakCount)
+	if err != nil {
+		return errors.Wrap(err, "change keys")
+	}
+
+	var changeAddresses []txbuilder.AddressKeyID
+	for i, changeKey := range changeKeys {
+		ra, err := bitcoin.RawAddressFromLockingScript(changeKey.LockingScript)
+		if err != nil {
+			return errors.Wrapf(err, "change address %d", i)
+		}
+
+		changeAddresses = append(changeAddresses, txbuilder.AddressKeyID{
+			Address: ra,
+		})
+	}
+
+	if err := txb.AddFundingBreakChange(utxos, w.config.SatoshiBreakValue,
+		changeAddresses); err != nil {
+		return errors.Wrap(err, "funding")
+	}
+
+	if err := w.PopulateExpandedTx(ctx, etx); err != nil {
+		return errors.Wrap(err, "populate")
+	}
+
+	return nil
+}
+
+func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx) ([]bitcoin.UTXO, error) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	var result []bitcoin.UTXO
+	for _, output := range w.Outputs {
+		if output.SpentTxID != nil {
+			continue
+		}
+
+		result = append(result, bitcoin.UTXO{
+			Hash:          output.TxID,
+			Index:         output.Index,
+			Value:         output.Value,
+			LockingScript: output.LockingScript,
+		})
+	}
+
+	return result, nil
 }
 
 func (w *Wallet) fetchTx(ctx context.Context, txid bitcoin.Hash32) (*Tx, error) {
 	tx := &Tx{}
 	if err := storage.Load(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, txid), tx); err != nil {
+		if errors.Cause(err) == storage.ErrNotFound {
+			return nil, nil
+		}
 		return nil, errors.Wrap(err, "storage")
 	}
 
