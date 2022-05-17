@@ -3,6 +3,8 @@ package wallet
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
+	"io"
 	"time"
 
 	"github.com/tokenized/pkg/bitcoin"
@@ -19,6 +21,18 @@ type Key struct {
 type Keys []*Key
 
 type KeySet map[bitcoin.Hash32]Keys
+
+func (w *Wallet) GetKeys(contextID bitcoin.Hash32) (Keys, error) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	keys, exists := w.KeySet[contextID]
+	if !exists {
+		return nil, ErrContextNotFound
+	}
+
+	return keys, nil
+}
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.
 func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
@@ -40,7 +54,12 @@ func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
 	}
 
 	w.lock.Lock()
-	w.KeySet[contextID] = Keys{walletKey}
+	previous, exists := w.KeySet[contextID]
+	if exists {
+		w.KeySet[contextID] = append(previous, walletKey)
+	} else {
+		w.KeySet[contextID] = Keys{walletKey}
+	}
 	w.lock.Unlock()
 
 	return walletKey, nil
@@ -84,7 +103,12 @@ func (w *Wallet) GenerateKeys(contextID bitcoin.Hash32, count int) (Keys, error)
 	}
 
 	w.lock.Lock()
-	w.KeySet[contextID] = result
+	previous, exists := w.KeySet[contextID]
+	if exists {
+		w.KeySet[contextID] = append(previous, result...)
+	} else {
+		w.KeySet[contextID] = result
+	}
 	w.lock.Unlock()
 
 	return result, nil
@@ -145,4 +169,64 @@ func RandomHash() bitcoin.Hash32 {
 	hash := sha256.Sum256(hasher.Sum(nil))
 	result, _ := bitcoin.NewHash32(hash[:])
 	return *result
+}
+
+func (k *KeySet) Serialize(w io.Writer) error {
+	if err := binary.Write(w, endian, uint32(len(*k))); err != nil {
+		return errors.Wrap(err, "map count")
+	}
+
+	for contextID, keys := range *k {
+		if err := contextID.Serialize(w); err != nil {
+			return errors.Wrapf(err, "context id %s", contextID)
+		}
+
+		if err := binary.Write(w, endian, uint32(len(keys))); err != nil {
+			return errors.Wrapf(err, "key count %s", contextID)
+		}
+
+		for i, key := range keys {
+			if err := key.Hash.Serialize(w); err != nil {
+				return errors.Wrapf(err, "key hash %d %s", i, contextID)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (k *KeySet) Deserialize(r io.Reader) error {
+	result := make(map[bitcoin.Hash32]Keys)
+
+	var mapCount uint32
+	if err := binary.Read(r, endian, &mapCount); err != nil {
+		return errors.Wrap(err, "map count")
+	}
+
+	for m := uint32(0); m < mapCount; m++ {
+		var contextID bitcoin.Hash32
+		if err := contextID.Deserialize(r); err != nil {
+			return errors.Wrapf(err, "context id %d", m)
+		}
+
+		var keyCount uint32
+		if err := binary.Read(r, endian, &keyCount); err != nil {
+			return errors.Wrapf(err, "key count %d", m)
+		}
+
+		keys := make(Keys, keyCount)
+		for i := range keys {
+			newKey := &Key{}
+			if err := newKey.Hash.Deserialize(r); err != nil {
+				return errors.Wrapf(err, "key hash %d %d", i, m)
+			}
+
+			keys[i] = newKey
+		}
+
+		result[contextID] = keys
+	}
+
+	*k = result
+	return nil
 }

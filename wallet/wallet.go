@@ -1,17 +1,14 @@
 package wallet
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sync"
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/storage"
@@ -22,7 +19,8 @@ import (
 )
 
 const (
-	walletPath = "channels_wallet"
+	walletPath    = "channels_wallet"
+	walletVersion = uint8(0)
 )
 
 var (
@@ -34,6 +32,8 @@ var (
 	ErrUnknownHeader      = errors.New("Unkown Header")
 	ErrMissingAncestor    = errors.New("Missing Ancestor")
 	ErrNotMostPOW         = errors.New("Not Most POW")
+	ErrContextNotFound    = errors.New("Context Not Found")
+	ErrWrongKey           = errors.New("Wrong Key")
 
 	AlreadyHaveMerkleProof = errors.New("Already Have Merkle Proof")
 
@@ -64,22 +64,21 @@ type FeeQuoter interface {
 }
 
 type Wallet struct {
-	baseKey       bitcoin.Key
-	BasePublicKey bitcoin.PublicKey
+	baseKey bitcoin.Key
 
 	KeySet  KeySet
 	Outputs Outputs
 
 	config              Config
-	store               storage.Storage
+	store               storage.StreamReadWriter
 	merkleProofVerifier MerkleProofVerifier
 	feeQuoter           FeeQuoter
 
 	lock sync.RWMutex
 }
 
-func NewWallet(config Config, store storage.Storage, merkleProofVerifier MerkleProofVerifier,
-	feeQuoter FeeQuoter, key bitcoin.Key) *Wallet {
+func NewWallet(config Config, store storage.StreamReadWriter,
+	merkleProofVerifier MerkleProofVerifier, feeQuoter FeeQuoter, key bitcoin.Key) *Wallet {
 	return &Wallet{
 		config:              config,
 		store:               store,
@@ -179,6 +178,40 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 	return nil
 }
 
+func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx) error {
+
+	wkeys, err := w.GetKeys(contextID)
+	if err != nil {
+		return errors.Wrap(err, "get keys")
+	}
+
+	keys := make([]bitcoin.Key, len(wkeys))
+	for i, wkey := range wkeys {
+		keys[i] = wkey.Key
+	}
+
+	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
+	if err != nil {
+		return errors.Wrap(err, "fee quotes")
+	}
+
+	miningFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).MiningFee.Rate()
+	relayFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate()
+
+	txb, err := txbuilder.NewTxBuilderFromWire(miningFeeRate, relayFeeRate, etx.Tx,
+		etx.Ancestors.GetTxs())
+	if err != nil {
+		return errors.Wrap(err, "tx builder")
+	}
+
+	if err := txb.SignOnly(keys); err != nil {
+		return errors.Wrap(err, "sign")
+	}
+
+	return nil
+}
+
 func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
 	etx *channels.ExpandedTx) ([]bitcoin.UTXO, error) {
 	w.lock.Lock()
@@ -203,18 +236,25 @@ func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
 
 func (w *Wallet) fetchTx(ctx context.Context, txid bitcoin.Hash32) (*Tx, error) {
 	tx := &Tx{}
-	if err := storage.Load(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, txid), tx); err != nil {
+
+	path := fmt.Sprintf("%s/%s", txsPath, txid)
+	if err := storage.StreamRead(ctx, w.store, path, tx); err != nil {
 		if errors.Cause(err) == storage.ErrNotFound {
 			return nil, nil
 		}
-		return nil, errors.Wrap(err, "storage")
+		return nil, errors.Wrap(err, "read")
 	}
 
 	return tx, nil
 }
 
 func (w *Wallet) saveTx(ctx context.Context, tx *Tx) error {
-	return storage.Save(ctx, w.store, fmt.Sprintf("%s/%s", txsPath, tx.Tx.TxHash()), tx)
+	path := fmt.Sprintf("%s/%s", txsPath, tx.Tx.TxHash())
+	if err := storage.StreamWrite(ctx, w.store, path, tx); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
 }
 
 func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Hash32) error {
@@ -361,73 +401,80 @@ func (w *Wallet) GetKeyForLockingScript(script bitcoin.Script) *Key {
 	return nil
 }
 
-// CheckKey is used to ensure the key matching the stored data was used to create the wallet. Call
-// after loading the wallet from storage.
-func (w *Wallet) CheckKey() error {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-
-	if !w.baseKey.PublicKey().Equal(w.BasePublicKey) {
-		return errors.New("Wrong key")
+func (w *Wallet) Load(ctx context.Context) error {
+	path := fmt.Sprintf("%s/wallet", walletPath)
+	if err := storage.StreamRead(ctx, w.store, path, w); err != nil {
+		return errors.Wrap(err, "read")
 	}
 
 	return nil
 }
 
-func (w *Wallet) Load(ctx context.Context) error {
-	return storage.Load(ctx, w.store, fmt.Sprintf("%s/wallet", walletPath), w)
-}
-
 func (w *Wallet) Save(ctx context.Context) error {
-	return storage.Save(ctx, w.store, fmt.Sprintf("%s/wallet", walletPath), w)
-}
-
-func (w *Wallet) Serialize(writer io.Writer) error {
-	w.lock.RLock()
-	scriptItems, err := bsor.Marshal(w)
-	if err != nil {
-		w.lock.RUnlock()
-		return errors.Wrap(err, "bsor")
-	}
-	w.lock.RUnlock()
-
-	script, err := scriptItems.Script()
-	if err != nil {
-		return errors.Wrap(err, "script")
-	}
-
-	if _, err := writer.Write(script); err != nil {
+	path := fmt.Sprintf("%s/wallet", walletPath)
+	if err := storage.StreamWrite(ctx, w.store, path, w); err != nil {
 		return errors.Wrap(err, "write")
 	}
 
 	return nil
 }
 
-func (w *Wallet) Deserialize(r io.Reader) error {
+func (w *Wallet) Serialize(writer io.Writer) error {
 	w.lock.RLock()
-	baseKey := w.baseKey
-	w.lock.RUnlock()
+	defer w.lock.RUnlock()
 
-	b, err := ioutil.ReadAll(r)
-	if err != nil {
-		return errors.Wrap(err, "read")
+	if err := binary.Write(writer, endian, walletVersion); err != nil {
+		return errors.Wrap(err, "version")
 	}
 
-	scriptItems, err := bitcoin.ParseScriptItems(bytes.NewReader(b), -1)
-	if err != nil {
-		return errors.Wrap(err, "script")
+	if err := w.baseKey.PublicKey().Serialize(writer); err != nil {
+		return errors.Wrap(err, "public key")
 	}
 
+	if err := w.KeySet.Serialize(writer); err != nil {
+		return errors.Wrap(err, "key set")
+	}
+
+	if err := w.Outputs.Serialize(writer); err != nil {
+		return errors.Wrap(err, "outputs")
+	}
+
+	return nil
+}
+
+func (w *Wallet) Deserialize(r io.Reader) error {
 	w.lock.Lock()
-	if _, err := bsor.Unmarshal(scriptItems, w); err != nil {
-		w.lock.Unlock()
-		return errors.Wrap(err, "bsor")
+	defer w.lock.Unlock()
+
+	var version uint8
+	if err := binary.Read(r, endian, &version); err != nil {
+		return errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return errors.New("Unsupported version")
+	}
+
+	var publicKey bitcoin.PublicKey
+	if err := publicKey.Deserialize(r); err != nil {
+		return errors.Wrap(err, "public key")
+	}
+
+	if !w.baseKey.PublicKey().Equal(publicKey) {
+		return ErrWrongKey
+	}
+
+	if err := w.KeySet.Deserialize(r); err != nil {
+		return errors.Wrap(err, "key set")
+	}
+
+	if err := w.Outputs.Deserialize(r); err != nil {
+		return errors.Wrap(err, "outputs")
 	}
 
 	// Recalculate keys and locking scripts from hashes.
 	for _, keys := range w.KeySet {
 		for _, walletKey := range keys {
-			key, err := baseKey.AddHash(walletKey.Hash)
+			key, err := w.baseKey.AddHash(walletKey.Hash)
 			if err != nil {
 				return errors.Wrap(err, "key")
 			}
@@ -440,8 +487,6 @@ func (w *Wallet) Deserialize(r io.Reader) error {
 			walletKey.LockingScript = lockingScript
 		}
 	}
-
-	w.lock.Unlock()
 
 	return nil
 }
