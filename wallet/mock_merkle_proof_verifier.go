@@ -16,7 +16,9 @@ import (
 type MockMerkleProofVerifier struct {
 	blocks map[bitcoin.Hash32]*mockMerkleBlock
 
-	currentTime time.Time
+	currentTime       time.Time
+	currentHeight     int
+	previousBlockHash *bitcoin.Hash32
 
 	lock sync.Mutex
 }
@@ -28,20 +30,24 @@ type mockMerkleBlock struct {
 
 func NewMockMerkleProofVerifier() *MockMerkleProofVerifier {
 	return &MockMerkleProofVerifier{
-		blocks:      make(map[bitcoin.Hash32]*mockMerkleBlock),
-		currentTime: time.Now().Add(-10 * time.Hour),
+		blocks:        make(map[bitcoin.Hash32]*mockMerkleBlock),
+		currentTime:   time.Now().Add(-10 * time.Hour),
+		currentHeight: 1000,
 	}
 }
 
-func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
-	txids ...bitcoin.Hash32) []*merkle_proof.MerkleProof {
-
+func (m *MockMerkleProofVerifier) MockMerkleProofs(txids ...bitcoin.Hash32) []*merkle_proof.MerkleProof {
 	header := &wire.BlockHeader{
 		Timestamp: uint32(m.currentTime.Unix()),
 		Bits:      0x1d00ffff,
 		Nonce:     rand.Uint32(),
 	}
-	rand.Read(header.PrevBlock[:])
+
+	if m.previousBlockHash == nil {
+		rand.Read(header.PrevBlock[:])
+	} else {
+		copy(header.PrevBlock[:], (*m.previousBlockHash)[:])
+	}
 	m.currentTime = m.currentTime.Add(time.Minute * 10)
 
 	tree := merkle_proof.NewMerkleTree(true)
@@ -75,6 +81,7 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
 	copy(header.MerkleRoot[:], merkleRoot[:])
 
 	blockHash := *header.BlockHash()
+	m.previousBlockHash = &blockHash
 
 	for i, proof := range proofs {
 		proof.TxID = &txids[i]
@@ -85,8 +92,9 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(height int,
 	m.lock.Lock()
 	m.blocks[blockHash] = &mockMerkleBlock{
 		header: header,
-		height: height,
+		height: m.currentHeight,
 	}
+	m.currentHeight++
 	m.lock.Unlock()
 
 	return proofs

@@ -66,8 +66,9 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 }
 
 func (w *Wallet) VerifyExpandedTx(ctx context.Context, etx *channels.ExpandedTx) error {
+	verified := make(map[bitcoin.Hash32]bool)
 	for _, txin := range etx.Tx.TxIn {
-		if err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash); err != nil {
+		if err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, &verified); err != nil {
 			return errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 		}
 	}
@@ -76,7 +77,11 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, etx *channels.ExpandedTx)
 }
 
 func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
-	txid bitcoin.Hash32) error {
+	txid bitcoin.Hash32, verified *map[bitcoin.Hash32]bool) error {
+
+	if _, exists := (*verified)[txid]; exists {
+		return nil // already verified this tx
+	}
 
 	atx := etx.Ancestors.GetTx(txid)
 	if atx == nil {
@@ -90,6 +95,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 		}
 
 		if isLongest {
+			(*verified)[txid] = true
 			return nil
 		}
 
@@ -101,10 +107,11 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 		return errors.Wrap(ErrMissingAncestor, txid.String())
 	}
 	for _, txin := range tx.TxIn {
-		if err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash); err != nil {
+		if err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, verified); err != nil {
 			return errors.Wrap(err, txid.String())
 		}
 	}
 
+	(*verified)[txid] = true
 	return nil
 }

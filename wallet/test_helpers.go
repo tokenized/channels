@@ -45,7 +45,38 @@ func MockWalletWith(merkleProofVerifier MerkleProofVerifier, feeQuoter FeeQuoter
 	return NewWallet(config, storage.NewMockStorage(), merkleProofVerifier, feeQuoter, key)
 }
 
-func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint64) {
+func MockReceiveTx(ctx context.Context, wallet *Wallet, contextID bitcoin.Hash32,
+	outputValues ...uint64) *wire.MsgTx {
+
+	keys, err := wallet.GenerateKeys(contextID, len(outputValues))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to generate keys : %s", err))
+	}
+
+	tx := wire.NewMsgTx(1)
+	for i, value := range outputValues {
+		tx.AddTxOut(wire.NewTxOut(value, keys[i].LockingScript))
+	}
+
+	verifier, ok := wallet.merkleProofVerifier.(*MockMerkleProofVerifier)
+	if !ok {
+		panic("Wallet does not have mock merkle proof verifier")
+	}
+
+	proofs := verifier.MockMerkleProofs(*tx.TxHash())
+
+	if err := wallet.AddTx(ctx, tx, contextID); err != nil {
+		panic(fmt.Sprintf("Failed to add input tx : %s", err))
+	}
+
+	if err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
+		panic(fmt.Sprintf("Failed to add input merkle proof : %s", err))
+	}
+
+	return tx
+}
+
+func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin.UTXO {
 	feeQuotes, err := wallet.feeQuoter.GetFeeQuotes(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get fee quote : %s", err))
@@ -53,19 +84,18 @@ func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint
 
 	dustFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate()
 
-	height := 10
-
-	for _, value := range values {
+	result := make([]*bitcoin.UTXO, len(values))
+	for i, value := range values {
 		contextID := RandomHash()
 
 		// Create a receive of bitcoin
-		etx, err := wallet.CreateBitcoinReceive(ctx, contextID, value)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to create bitcoin receive : %s", err))
+		etx := &channels.ExpandedTx{
+			Tx: MockReceiveTx(ctx, wallet, contextID, value),
 		}
 
 		// Create inputs
 		totalAmount := uint64(int(value*2) + rand.Intn(int(value*2)))
+		remainingAmount := totalAmount
 		var inputKeys []bitcoin.Key
 		var inputLockingScripts []bitcoin.Script
 		var inputAmounts []uint64
@@ -84,13 +114,16 @@ func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint
 
 			dust := txbuilder.DustLimitForLockingScript(lockingScript, dustFeeRate)
 
-			amount := dust + uint64(rand.Intn(int(totalAmount)))
+			amount := dust + uint64(rand.Intn(int(totalAmount/2)))
+			if amount > remainingAmount {
+				amount = remainingAmount
+			}
 			inputAmounts = append(inputAmounts, amount)
 
 			inputTx := wire.NewMsgTx(1)
 			inputTx.AddTxOut(wire.NewTxOut(amount, lockingScript))
 
-			if amount > totalAmount && amount-totalAmount >= dust {
+			if amount > remainingAmount && amount-remainingAmount >= dust {
 				// add change
 				changeKey, err := bitcoin.GenerateKey(bitcoin.MainNet)
 				if err != nil {
@@ -102,7 +135,7 @@ func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint
 					panic(fmt.Sprintf("Failed to create change locking script : %s", err))
 				}
 
-				inputTx.AddTxOut(wire.NewTxOut(amount-totalAmount, changeLockingScript))
+				inputTx.AddTxOut(wire.NewTxOut(amount-remainingAmount, changeLockingScript))
 			}
 
 			verifier, ok := wallet.merkleProofVerifier.(*MockMerkleProofVerifier)
@@ -110,7 +143,7 @@ func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint
 				panic("Wallet does not have mock merkle proof verifier")
 			}
 
-			proofs := verifier.MockMerkleProofs(height, *inputTx.TxHash())
+			proofs := verifier.MockMerkleProofs(*inputTx.TxHash())
 
 			etx.Tx.AddTxIn(wire.NewTxIn(wire.NewOutPoint(inputTx.TxHash(), 0), nil))
 
@@ -122,12 +155,11 @@ func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint
 				panic(fmt.Sprintf("Failed to add input merkle proof : %s", err))
 			}
 
-			if amount >= totalAmount {
+			if amount >= remainingAmount {
 				break
 			}
 
-			totalAmount -= amount
-			height += rand.Intn(10)
+			remainingAmount -= amount
 		}
 
 		hashCache := &txbuilder.SigHashCache{}
@@ -145,5 +177,14 @@ func GenerateUTXOsWithProofs(ctx context.Context, wallet *Wallet, values ...uint
 		if err := wallet.AddTx(ctx, etx.Tx, contextID); err != nil {
 			panic(fmt.Sprintf("Failed to add tx : %s", err))
 		}
+
+		result[i] = &bitcoin.UTXO{
+			Hash:          *etx.Tx.TxHash(),
+			Index:         0,
+			Value:         value,
+			LockingScript: etx.Tx.TxOut[0].LockingScript,
+		}
 	}
+
+	return result
 }
