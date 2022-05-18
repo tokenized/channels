@@ -7,5 +7,5 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/pkg/errors v0.9.1
 	github.com/tokenized/envelope v1.0.1-0.20220506152929-75f2029a0932
-	github.com/tokenized/pkg v0.4.1-0.20220517020046-9557e0c66c21
+	github.com/tokenized/pkg v0.4.1-0.20220518192832-d4c06118ee7f
 )

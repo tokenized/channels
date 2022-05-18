@@ -39,6 +39,10 @@ func (t *Timestamp) Add(d Duration) {
 	*t += Timestamp(d)
 }
 
+func (t *Timestamp) Subtract(d Duration) {
+	*t -= Timestamp(d)
+}
+
 func ConvertToDuration(d time.Duration) Duration {
 	return Duration(d.Seconds())
 }

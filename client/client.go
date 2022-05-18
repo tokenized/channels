@@ -11,7 +11,6 @@ import (
 	"github.com/tokenized/channels/wallet"
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
@@ -35,9 +34,9 @@ var (
 )
 
 type Client struct {
-	baseKey  bitcoin.Key
-	account  Account
-	channels Channels
+	baseKey           bitcoin.Key
+	peerAccountClient peer_channels.AccountClient
+	channels          Channels
 
 	store               storage.StreamReadWriter
 	peerChannelsFactory *peer_channels.Factory
@@ -45,12 +44,6 @@ type Client struct {
 	channelHashes []bitcoin.Hash32 // used to load channels from storage
 
 	lock sync.RWMutex
-}
-
-type Account struct {
-	BaseURL string `bsor:"1" json:"base_url"`
-	ID      string `bsor:"2" json:"id"`
-	Token   string `bsor:"3" json:"token"`
 }
 
 func SupportedProtocols() envelope.ProtocolIDs {
@@ -65,11 +58,11 @@ func SupportedProtocols() envelope.ProtocolIDs {
 	}
 }
 
-func NewClient(baseKey bitcoin.Key, account Account,
+func NewClient(baseKey bitcoin.Key, peerAccountClient peer_channels.AccountClient,
 	store storage.StreamReadWriter, peerChannelsFactory *peer_channels.Factory) *Client {
 	return &Client{
 		baseKey:             baseKey,
-		account:             account,
+		peerAccountClient:   peerAccountClient,
 		store:               store,
 		peerChannelsFactory: peerChannelsFactory,
 	}
@@ -91,13 +84,6 @@ func (c *Client) ChannelKey(channel *Channel) bitcoin.Key {
 	}
 
 	return key
-}
-
-func (c *Client) Account() Account {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	return c.account
 }
 
 func (c *Client) Channel(index int) *Channel {
@@ -122,13 +108,7 @@ func GetWriteToken(peerChannel *peer_channels.Channel) string {
 func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
 	contextID bitcoin.Hash32) (*Channel, error) {
 
-	account := c.Account()
-	peerClient, err := c.peerChannelsFactory.NewClient(account.BaseURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "peer channel client")
-	}
-
-	peerChannel, err := peerClient.CreatePublicChannel(ctx, account.ID, account.Token)
+	peerChannel, err := c.peerAccountClient.CreatePublicChannel(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create peer channel")
 	}
@@ -154,13 +134,7 @@ func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
 func (c *Client) CreateRelationshipChannel(ctx context.Context,
 	contextID bitcoin.Hash32) (*Channel, error) {
 
-	account := c.Account()
-	peerClient, err := c.peerChannelsFactory.NewClient(account.BaseURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "peer channel client")
-	}
-
-	peerChannel, err := peerClient.CreateChannel(ctx, account.ID, account.Token)
+	peerChannel, err := c.peerAccountClient.CreateChannel(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create peer channel")
 	}
@@ -222,16 +196,10 @@ func (c *Client) GetUnprocessedMessages(ctx context.Context) (ChannelMessages, e
 func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	wait := &sync.WaitGroup{}
 	incomingMessages := make(chan peer_channels.Message)
-	account := c.Account()
-
-	peerClient, err := c.peerChannelsFactory.NewClient(account.BaseURL)
-	if err != nil {
-		return errors.Wrap(err, "peer client")
-	}
 
 	listenThread := threads.NewThread("Listen for Messages", func(ctx context.Context,
 		interrupt <-chan interface{}) error {
-		return peerClient.AccountListen(ctx, account.ID, account.Token, incomingMessages, interrupt)
+		return c.peerAccountClient.Listen(ctx, incomingMessages, interrupt)
 	})
 	listenThread.SetWait(wait)
 	listenThreadComplete := listenThread.GetCompleteChannel()
@@ -380,19 +348,6 @@ func (c *Client) Serialize(w io.Writer) error {
 		return errors.Wrap(err, "version")
 	}
 
-	accountBSOR, err := bsor.MarshalBinary(c.account)
-	if err != nil {
-		return errors.Wrap(err, "marshal account")
-	}
-
-	if err := binary.Write(w, endian, uint32(len(accountBSOR))); err != nil {
-		return errors.Wrap(err, "account size")
-	}
-
-	if _, err := w.Write(accountBSOR); err != nil {
-		return errors.Wrap(err, "write account")
-	}
-
 	if err := binary.Write(w, endian, uint32(len(c.channels))); err != nil {
 		return errors.Wrap(err, "channel count")
 	}
@@ -417,25 +372,6 @@ func (c *Client) Deserialize(r io.Reader) error {
 	}
 	if version != 0 {
 		return errors.New("Unsupported version")
-	}
-
-	var accountSize uint32
-	if err := binary.Read(r, endian, &accountSize); err != nil {
-		return errors.Wrap(err, "account size")
-	}
-
-	accountBSOR := make([]byte, accountSize)
-	if _, err := io.ReadFull(r, accountBSOR); err != nil {
-		return errors.Wrap(err, "read account")
-	}
-
-	account := &Account{}
-	if _, err := bsor.UnmarshalBinary(accountBSOR, account); err != nil {
-		return errors.Wrap(err, "unmarshal account")
-	}
-
-	if account.ID != c.account.ID {
-		return errors.New("Wrong account")
 	}
 
 	var channelCount uint32
