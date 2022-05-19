@@ -41,6 +41,9 @@ type Client struct {
 	store               storage.StreamReadWriter
 	peerChannelsFactory *peer_channels.Factory
 
+	messagesLock    sync.Mutex
+	messagesChannel chan ChannelMessage
+
 	channelHashes []bitcoin.Hash32 // used to load channels from storage
 
 	lock sync.RWMutex
@@ -193,6 +196,27 @@ func (c *Client) GetUnprocessedMessages(ctx context.Context) (ChannelMessages, e
 	return result, nil
 }
 
+// GetIncomingChannel returns a channel that is fed all new incoming messages. CloseIncomingChannel
+// must be called to close it.
+func (c *Client) GetIncomingChannel(ctx context.Context) <-chan ChannelMessage {
+	c.messagesLock.Lock()
+	defer c.messagesLock.Unlock()
+
+	c.messagesChannel = make(chan ChannelMessage, 100)
+	return c.messagesChannel
+}
+
+// CloseIncomingChannel closes a channel previously retrieved with GetIncomingChannel.
+func (c *Client) CloseIncomingChannel(ctx context.Context) {
+	c.messagesLock.Lock()
+	defer c.messagesLock.Unlock()
+
+	if c.messagesChannel != nil {
+		close(c.messagesChannel)
+		c.messagesChannel = nil
+	}
+}
+
 func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	wait := &sync.WaitGroup{}
 	incomingMessages := make(chan peer_channels.Message)
@@ -293,8 +317,20 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 func (c *Client) processMessage(ctx context.Context, channel *Channel,
 	message *peer_channels.Message) error {
 
-	if err := channel.ProcessMessage(ctx, message); err != nil {
+	result, err := channel.ProcessMessage(ctx, message)
+	if err != nil {
 		return errors.Wrap(err, "channel")
+	}
+
+	if result != nil {
+		c.messagesLock.Lock()
+		if c.messagesChannel != nil {
+			c.messagesChannel <- ChannelMessage{
+				Message: *result,
+				Channel: channel,
+			}
+		}
+		c.messagesLock.Unlock()
 	}
 
 	return nil

@@ -74,6 +74,28 @@ func Test_Initiate(t *testing.T) {
 		wait.Done()
 	}()
 
+	incoming1 := client1.GetIncomingChannel(ctx)
+	incoming1Count := 0
+	wait.Add(1)
+	go func() {
+		for range incoming1 {
+			t.Logf("Received incoming message 1")
+			incoming1Count++
+		}
+		wait.Done()
+	}()
+
+	incoming2 := client2.GetIncomingChannel(ctx)
+	incoming2Count := 0
+	wait.Add(1)
+	go func() {
+		for range incoming2 {
+			t.Logf("Received incoming message 2")
+			incoming2Count++
+		}
+		wait.Done()
+	}()
+
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
 	initiation := &channels.RelationshipInitiation{
@@ -317,6 +339,16 @@ func Test_Initiate(t *testing.T) {
 	/**************************************** Stop Clients ****************************************/
 	/**********************************************************************************************/
 
+	if incoming1Count != 1 {
+		t.Errorf("Wrong incoming 1 count : got %d, want %d", incoming1Count, 1)
+	}
+
+	if incoming2Count != 1 {
+		t.Errorf("Wrong incoming 2 count : got %d, want %d", incoming2Count, 1)
+	}
+
+	client1.CloseIncomingChannel(ctx)
+	client2.CloseIncomingChannel(ctx)
 	close(interrupt1)
 	close(interrupt2)
 	wait.Wait()

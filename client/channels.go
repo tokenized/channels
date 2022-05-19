@@ -156,15 +156,17 @@ func (c *Channel) SetExternalPublicKey(publicKey bitcoin.PublicKey) error {
 	return nil
 }
 
-func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Message) error {
+func (c *Channel) ProcessMessage(ctx context.Context,
+	message *peer_channels.Message) (*Message, error) {
+
 	msg, err := c.incoming.newMessageWithPayload(ctx, bitcoin.Script(message.Payload))
 	if err != nil {
-		return errors.Wrap(err, "add message")
+		return nil, errors.Wrap(err, "add message")
 	}
 
 	wMessage, err := channels.Unwrap(bitcoin.Script(message.Payload))
 	if err != nil {
-		return errors.Wrap(err, "unwrap")
+		return nil, errors.Wrap(err, "unwrap")
 	}
 
 	if wMessage.Signature == nil {
@@ -173,9 +175,9 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 			RejectProtocolID: channels.ProtocolIDSignedMessages,
 			Code:             channels.SignedRejectCodeSignatureRequired,
 		}); err != nil {
-			return errors.Wrap(err, "no signature: reject")
+			return nil, errors.Wrap(err, "no signature: reject")
 		}
-		return nil
+		return nil, nil
 	}
 
 	if wMessage.Response != nil {
@@ -203,14 +205,14 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 			RejectProtocolID: channels.ProtocolIDRelationships,
 			Code:             channels.RelationshipsRejectCodeNotInitiated,
 		}); err != nil {
-			return errors.Wrap(err, "no relationship: reject")
+			return nil, errors.Wrap(err, "no relationship: reject")
 		}
-		return nil
+		return nil, nil
 	}
 
 	if wMessage.Signature.PublicKey != nil {
 		if !wMessage.Signature.PublicKey.Equal(*publicKey) {
-			return ErrWrongPublicKey
+			return nil, ErrWrongPublicKey
 		}
 	} else {
 		wMessage.Signature.SetPublicKey(publicKey)
@@ -226,9 +228,9 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 			RejectProtocolID: channels.ProtocolIDSignedMessages,
 			Code:             code,
 		}); err != nil {
-			return errors.Wrap(err, "reject")
+			return nil, errors.Wrap(err, "reject")
 		}
-		return nil
+		return nil, nil
 	}
 
 	if c.Type() == ChannelTypeRelationship && entity != nil {
@@ -240,19 +242,19 @@ func (c *Channel) ProcessMessage(ctx context.Context, message *peer_channels.Mes
 					RejectProtocolID: channels.ProtocolIDRelationships,
 					Code:             channels.RelationshipsRejectCodeAlreadyInitiated,
 				}); err != nil {
-					return errors.Wrap(err, "already have entity: reject")
+					return nil, errors.Wrap(err, "already have entity: reject")
 				}
 			} else {
-				return errors.Wrap(err, "set entity")
+				return nil, errors.Wrap(err, "set entity")
 			}
 		}
 
 		if err := c.SetExternalPublicKey(entity.PublicKey); err != nil {
-			return errors.Wrap(err, "set outgoing public key")
+			return nil, errors.Wrap(err, "set outgoing public key")
 		}
 	}
 
-	return nil
+	return msg, nil
 }
 
 func channelPath(hash bitcoin.Hash32) string {
