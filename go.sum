@@ -73,11 +73,9 @@ github.com/stretchr/testify v1.5.1 h1:nOGnQDM7FYENwehXlg/kFVnos3rEvtKTjRvOWSzb6H
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
 github.com/tokenized/config v0.2.1 h1:vymK/v81JZADgXo+lnUPtizrPWKhy4BaBuiI84PwLXc=
 github.com/tokenized/config v0.2.1/go.mod h1:+8nT8o80nFsxk7Qt5utgfAkEIFNHFtb26hD56hMlSZE=
-github.com/tokenized/envelope v1.0.1-0.20220506152929-75f2029a0932 h1:k87jG0RlC3tocNeVx3EGKzv9CDKzSkm2h78qU54QCcQ=
-github.com/tokenized/envelope v1.0.1-0.20220506152929-75f2029a0932/go.mod h1:aiKVBieZvk+XA+5XZQgIErftG/GlR1u7uqMTQtN8Z7U=
+github.com/tokenized/envelope v1.0.1-0.20220520031403-63dd1983ccd8 h1:B7813xF6jiQUGk+Ea/5ZSeWfsSUstmru/8B47vFx3Dc=
+github.com/tokenized/envelope v1.0.1-0.20220520031403-63dd1983ccd8/go.mod h1:jj3T1Fm/Vf2zphkUuXlDpEXEVDoFHVUi2jC+ncU9lqM=
 github.com/tokenized/pkg v0.2.0/go.mod h1:QJIVlpGu5AUytmnjmMGEZGJo59LUOG4xpi/PUN9RLLg=
-github.com/tokenized/pkg v0.4.1-0.20220422020725-d5c454068beb h1:mmmkZBSfWS3oCaDAATlvRYZfc7AzjUbE4/9WbqCVLng=
-github.com/tokenized/pkg v0.4.1-0.20220422020725-d5c454068beb/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
 github.com/tokenized/pkg v0.4.1-0.20220520003654-d682cbe31551 h1:w19LWiiaxiQD9Vov0Yn1egRkPo6FVlIfeNxgxFt7Odo=
 github.com/tokenized/pkg v0.4.1-0.20220520003654-d682cbe31551/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
 github.com/tyler-smith/go-bip32 v0.0.0-20170922074101-2c9cfd177564 h1:NXXyQVeRVLK8Xu27/hkkjwVOZLk5v4ZBEvvMtqMqznM=

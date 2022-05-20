@@ -74,7 +74,7 @@ func (*RequestMenu) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDRelationships
 }
 
-func (m *RequestMenu) Write() (envelope.ProtocolIDs, bitcoin.ScriptItems, error) {
+func (m *RequestMenu) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
 
@@ -84,11 +84,11 @@ func (m *RequestMenu) Write() (envelope.ProtocolIDs, bitcoin.ScriptItems, error)
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal")
+		return envelope.Data{}, errors.Wrap(err, "marshal")
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.ProtocolIDs{ProtocolIDInvoices}, payload, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
 // Menu represents a set of items available to include in an invoice.
@@ -324,7 +324,7 @@ type InvoiceItem struct {
 
 type InvoiceItems []*InvoiceItem
 
-func ParseInvoice(payload envelope.Data) (Message, error) {
+func ParseInvoice(payload envelope.Data) (Writer, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
@@ -396,7 +396,7 @@ func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
 	return nil, ErrInvoiceMissing
 }
 
-func InvoicesMessageForType(messageType InvoicesMessageType) Message {
+func InvoicesMessageForType(messageType InvoicesMessageType) Writer {
 	switch InvoicesMessageType(messageType) {
 	case InvoicesMessageTypeRequestMenu:
 		return &RequestMenu{}
@@ -419,7 +419,7 @@ func InvoicesMessageForType(messageType InvoicesMessageType) Message {
 	}
 }
 
-func InvoicesMessageTypeFor(message Message) InvoicesMessageType {
+func InvoicesMessageTypeFor(message Writer) InvoicesMessageType {
 	switch message.(type) {
 	case *RequestMenu:
 		return InvoicesMessageTypeRequestMenu

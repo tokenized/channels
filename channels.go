@@ -29,6 +29,7 @@ type Message interface {
 // Writer is implemented by Channels messages that can't wrap other message types. It returns the
 // envelope protocol IDs and payload.
 type Writer interface {
+	Message
 	Write() (envelope.Data, error)
 }
 
@@ -36,6 +37,7 @@ type Writer interface {
 // signature message can be wrapped around a another message. It returns the envelope protocol IDs
 // and payload.
 type Wrapper interface {
+	Message
 	Wrap(envelope.Data) (envelope.Data, error)
 }
 
@@ -51,7 +53,7 @@ type WrappedMessage struct {
 	Signature *Signature
 	Response  *Response
 	MessageID *MessageID
-	Message   Message
+	Message   Writer
 }
 
 func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
@@ -123,7 +125,7 @@ func Unwrap(script []byte) (*WrappedMessage, error) {
 	return result, nil
 }
 
-func parse(payload envelope.Data) (Message, error) {
+func parse(payload envelope.Data) (Writer, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, errors.New("Message empty")
 	}
