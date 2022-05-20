@@ -120,7 +120,7 @@ func ParseReject(payload envelope.Data) (*Reject, error) {
 	}
 
 	result := &Reject{}
-	if _, err := bsor.Unmarshal(payload.Payload[2:], result); err != nil {
+	if _, err := bsor.Unmarshal(payload.Payload[1:], result); err != nil {
 		return nil, errors.Wrap(err, "unmarshal")
 	}
 

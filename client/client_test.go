@@ -14,6 +14,7 @@ import (
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
+	"github.com/tokenized/pkg/wire"
 )
 
 func Test_Initiate(t *testing.T) {
@@ -250,6 +251,160 @@ func Test_Initiate(t *testing.T) {
 
 	if incoming2Count != 1 {
 		t.Errorf("Wrong incoming 2 count : got %d, want %d", incoming2Count, 1)
+	}
+
+	client1.CloseIncomingChannel(ctx)
+	client2.CloseIncomingChannel(ctx)
+	close(interrupt1)
+	close(interrupt2)
+	wait.Wait()
+}
+
+func Test_Response(t *testing.T) {
+	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
+	store := storage.NewMockStorage()
+	peerChannelsFactory := peer_channels.NewFactory()
+
+	/******************************** Create User 1 Client ****************************************/
+	/**********************************************************************************************/
+	client1 := MockClient(ctx, store, peerChannelsFactory)
+	user1PublicChannel, err := client1.CreateRelationshipInitiationChannel(ctx, wallet.RandomHash())
+	if err != nil {
+		t.Fatalf("Failed to create channel : %s", err)
+	}
+
+	/******************************** Create User 2 Client ****************************************/
+	/**********************************************************************************************/
+	client2 := MockClient(ctx, store, peerChannelsFactory)
+	user2Channel, err := client2.CreateRelationshipChannel(ctx, wallet.RandomHash())
+	if err != nil {
+		t.Fatalf("Failed to create channel : %s", err)
+	}
+
+	if err := user2Channel.SetOutgoingPeerChannels(user1PublicChannel.IncomingPeerChannels()); err != nil {
+		t.Fatalf("Failed to set peer channels : %s", err)
+	}
+
+	/*************************************** Start Clients ****************************************/
+	/**********************************************************************************************/
+	wait := &sync.WaitGroup{}
+
+	interrupt1 := make(chan interface{})
+	wait.Add(1)
+	go func() {
+		client1.Run(ctx, interrupt1)
+		wait.Done()
+	}()
+
+	interrupt2 := make(chan interface{})
+	wait.Add(1)
+	go func() {
+		client2.Run(ctx, interrupt1)
+		wait.Done()
+	}()
+
+	incoming1 := client1.GetIncomingChannel(ctx)
+	incoming1Count := 0
+	wait.Add(1)
+	go func() {
+		for range incoming1 {
+			t.Logf("Received incoming message 1")
+			incoming1Count++
+		}
+		wait.Done()
+	}()
+
+	incoming2 := client2.GetIncomingChannel(ctx)
+	incoming2Count := 0
+	wait.Add(1)
+	go func() {
+		for range incoming2 {
+			t.Logf("Received incoming message 2")
+			incoming2Count++
+		}
+		wait.Done()
+	}()
+
+	/************************************** Send Merkle Proof *************************************/
+	/**********************************************************************************************/
+
+	paymentKey, err := bitcoin.GenerateKey(bitcoin.MainNet)
+	if err != nil {
+		t.Fatalf("Failed to generate payment key : %s", err)
+	}
+
+	paymentLockingScript, err := paymentKey.LockingScript()
+	if err != nil {
+		t.Fatalf("Failed to create locking script : %s", err)
+	}
+
+	previousTx := wire.NewMsgTx(1)
+	previousTx.AddTxOut(wire.NewTxOut(125000, paymentLockingScript))
+
+	fakeMerkleProof := MockMerkleProof(previousTx)
+
+	merkleProof := &channels.MerkleProof{
+		MerkleProof: fakeMerkleProof,
+	}
+
+	js, _ := json.MarshalIndent(merkleProof, "", "  ")
+	t.Logf("Merkle Proof : %s", js)
+
+	if err := user2Channel.SendMessage(ctx, merkleProof, nil); err != nil {
+		t.Fatalf("Failed to send Merkle Proof : %s", err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+
+	/************************************ Receive Merkle Proof ************************************/
+	/**********************************************************************************************/
+
+	user1Messages, err := client1.GetUnprocessedMessages(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get unprocessed messages : %s", err)
+	}
+
+	if len(user1Messages) != 1 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(user1Messages), 1)
+	}
+
+	wMessage, err := channels.Unwrap(user1Messages[0].Message.Payload())
+	if err != nil {
+		t.Fatalf("Failed to unwrap message : %s", err)
+	}
+
+	if _, ok := wMessage.Message.(*channels.MerkleProof); !ok {
+		t.Errorf("Message not a merkle proof")
+	}
+
+	autoResponse := user1Messages[0].Message.Response()
+	if len(autoResponse) == 0 {
+		t.Fatalf("No auto response provided")
+	}
+
+	wMessage, err = channels.Unwrap(autoResponse)
+	if err != nil {
+		t.Fatalf("Failed to unwrap message : %s", err)
+	}
+
+	reject, ok := wMessage.Message.(*channels.Reject)
+	if !ok {
+		t.Errorf("Message not a reject")
+	}
+
+	js, _ = json.MarshalIndent(reject, "", "  ")
+	t.Logf("Reject : %s", js)
+
+	if wMessage.Signature != nil {
+		t.Errorf("Auto response should not be signed")
+	}
+
+	if wMessage.Response != nil {
+		t.Errorf("Auto response should not contain response")
+	}
+
+	if wMessage.MessageID != nil {
+		t.Errorf("Auto response should not contain message id")
 	}
 
 	client1.CloseIncomingChannel(ctx)

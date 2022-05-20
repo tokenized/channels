@@ -140,5 +140,9 @@ func parse(payload envelope.Data) (Message, error) {
 		return ParseInvoice(payload)
 	}
 
-	return nil, errors.Wrap(ErrUnsupportedProtocol, fmt.Sprintf("%x", payload.ProtocolIDs[0]))
+	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDReject) {
+		return ParseReject(payload)
+	}
+
+	return nil, errors.Wrap(ErrUnsupportedProtocol, fmt.Sprintf("0x%x", payload.ProtocolIDs[0]))
 }
