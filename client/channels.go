@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
@@ -45,6 +46,9 @@ type Channel struct {
 	// Hash used to derive channel's base key
 	hash bitcoin.Hash32
 
+	// Base key used to sign messages.
+	key bitcoin.Key
+
 	// externalPublicKey is the base public key of the other party.
 	externalPublicKey *bitcoin.PublicKey
 
@@ -62,11 +66,14 @@ type Channel struct {
 
 type Channels []*Channel
 
-func NewChannel(typ ChannelType, hash bitcoin.Hash32, incomingPeerChannels channels.PeerChannels,
-	store storage.StreamReadWriter, peerChannelsFactory *peer_channels.Factory) *Channel {
+func NewChannel(typ ChannelType, hash bitcoin.Hash32, key bitcoin.Key,
+	incomingPeerChannels channels.PeerChannels, store storage.StreamReadWriter,
+	peerChannelsFactory *peer_channels.Factory) *Channel {
+
 	return &Channel{
 		typ:  typ,
 		hash: hash,
+		key:  key,
 		incoming: NewCommunicationChannel(incomingPeerChannels, store,
 			channelIncomingPath(hash)),
 		outgoing: NewCommunicationChannel(nil, store,
@@ -76,10 +83,11 @@ func NewChannel(typ ChannelType, hash bitcoin.Hash32, incomingPeerChannels chann
 	}
 }
 
-func newChannel(hash bitcoin.Hash32, store storage.StreamReadWriter,
+func newChannel(hash bitcoin.Hash32, key bitcoin.Key, store storage.StreamReadWriter,
 	peerChannelsFactory *peer_channels.Factory) *Channel {
 	return &Channel{
 		hash: hash,
+		key:  key,
 		incoming: newCommunicationChannel(store,
 			channelIncomingPath(hash)),
 		outgoing: newCommunicationChannel(store,
@@ -103,6 +111,13 @@ func (c *Channel) Hash() bitcoin.Hash32 {
 	return c.hash
 }
 
+func (c *Channel) Key() bitcoin.Key {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	return c.key
+}
+
 func (c *Channel) IncomingPeerChannels() channels.PeerChannels {
 	return c.incoming.PeerChannels()
 }
@@ -111,7 +126,7 @@ func (c *Channel) SetOutgoingPeerChannels(peerChannels channels.PeerChannels) er
 	return c.outgoing.SetPeerChannels(peerChannels)
 }
 
-func (c *Channel) InitializeRelationship(ctx context.Context,
+func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Script,
 	initiation *channels.RelationshipInitiation) error {
 
 	if c.Type() != ChannelTypeRelationship {
@@ -126,15 +141,58 @@ func (c *Channel) InitializeRelationship(ctx context.Context,
 		return errors.Wrap(err, "set outgoing public key")
 	}
 
+	msg, err := c.incoming.newMessageWithPayload(ctx, payload)
+	if err != nil {
+		return errors.Wrap(err, "add message")
+	}
+
+	if err := c.MarkMessageProcessed(ctx, msg.ID()); err != nil {
+		return errors.Wrap(err, "mark processed")
+	}
+
+	return nil
+}
+
+func (c *Channel) CreateMessage(ctx context.Context, msg channels.Writer,
+	responseID *uint64) (*Message, error) {
+
+	newMessage, err := c.NewMessage(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "new message")
+	}
+
+	script, err := channels.Wrap(msg, c.Key(), wallet.RandomHash(), newMessage.ID(), responseID)
+	if err != nil {
+		return nil, errors.Wrap(err, "wrap")
+	}
+	newMessage.SetPayload(script)
+
+	return newMessage, nil
+}
+
+func (c *Channel) SendMessage(ctx context.Context, msg channels.Writer,
+	responseID *uint64) error {
+
+	message, err := c.CreateMessage(ctx, msg, responseID)
+	if err != nil {
+		return errors.Wrap(err, "create")
+	}
+
+	if err := c.outgoing.sendMessage(ctx, c.peerChannelsFactory, message); err != nil {
+		return errors.Wrap(err, "send")
+	}
+
+	if responseID != nil {
+		if err := c.MarkMessageProcessed(ctx, *responseID); err != nil {
+			return errors.Wrap(err, "mark processed")
+		}
+	}
+
 	return nil
 }
 
 func (c *Channel) NewMessage(ctx context.Context) (*Message, error) {
 	return c.outgoing.newMessage(ctx)
-}
-
-func (c *Channel) SendMessage(ctx context.Context, message *Message) error {
-	return c.outgoing.sendMessage(ctx, c.peerChannelsFactory, message)
 }
 
 func (c *Channel) MarkMessageProcessed(ctx context.Context, id uint64) error {
@@ -288,10 +346,11 @@ func (c *Channel) Save(ctx context.Context) error {
 }
 
 func LoadChannel(ctx context.Context, store storage.StreamReadWriter,
-	peerChannelsFactory *peer_channels.Factory, hash bitcoin.Hash32) (*Channel, error) {
+	peerChannelsFactory *peer_channels.Factory, hash bitcoin.Hash32,
+	key bitcoin.Key) (*Channel, error) {
 
 	path := channelPath(hash)
-	channel := newChannel(hash, store, peerChannelsFactory)
+	channel := newChannel(hash, key, store, peerChannelsFactory)
 	if err := storage.StreamRead(ctx, store, path, channel); err != nil {
 		return nil, errors.Wrap(err, "read")
 	}

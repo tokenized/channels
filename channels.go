@@ -2,7 +2,6 @@ package channels
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
@@ -19,11 +18,11 @@ var (
 	ErrUnsupportedProtocol = errors.New("Unsupported Protocol")
 )
 
-// ChannelsMessage is implemented by all channels protocol message types. It is used to identify the
+// Message is implemented by all channels protocol message types. It is used to identify the
 // specific channels protocol for the message.
 // ChannelsMessages must also implement either Writer or Wrapper though this can't be enforced at
 // compile time.
-type ChannelsMessage interface {
+type Message interface {
 	ProtocolID() envelope.ProtocolID
 }
 
@@ -48,17 +47,11 @@ type PeerChannel struct {
 
 type PeerChannels []PeerChannel
 
-func MessageHash(payload envelope.Data) bitcoin.Hash32 {
-	scriptItems := envelopeV1.Wrap(payload)
-	script, _ := scriptItems.Script()
-	return bitcoin.Hash32(sha256.Sum256(script))
-}
-
 type WrappedMessage struct {
 	Signature *Signature
 	Response  *Response
 	MessageID *MessageID
-	Message   ChannelsMessage
+	Message   Message
 }
 
 func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
@@ -130,7 +123,7 @@ func Unwrap(script []byte) (*WrappedMessage, error) {
 	return result, nil
 }
 
-func parse(payload envelope.Data) (ChannelsMessage, error) {
+func parse(payload envelope.Data) (Message, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, errors.New("Message empty")
 	}

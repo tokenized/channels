@@ -45,24 +45,36 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	}
 
 	userBInitiation := &channels.RelationshipInitiation{
-		PublicKey:          clientB.ChannelKey(channelB).PublicKey(),
+		PublicKey:          channelB.Key().PublicKey(),
 		PeerChannels:       channelB.IncomingPeerChannels(),
 		SupportedProtocols: SupportedProtocols(),
 		Identity:           *userBIdentity,
 	}
 
-	if err := channelA.InitializeRelationship(ctx, userBInitiation); err != nil {
+	initBMessage, err := channelB.CreateMessage(ctx, userBInitiation, nil)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create message : %s", err))
+	}
+
+	if err := channelA.InitializeRelationship(ctx, initBMessage.Payload(),
+		userBInitiation); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 
 	userAInitiation := &channels.RelationshipInitiation{
-		PublicKey:          clientA.ChannelKey(channelA).PublicKey(),
+		PublicKey:          channelA.Key().PublicKey(),
 		PeerChannels:       channelA.IncomingPeerChannels(),
 		SupportedProtocols: SupportedProtocols(),
 		Identity:           *userAIdentity,
 	}
 
-	if err := channelB.InitializeRelationship(ctx, userAInitiation); err != nil {
+	initAMessage, err := channelA.CreateMessage(ctx, userAInitiation, nil)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create message : %s", err))
+	}
+
+	if err := channelB.InitializeRelationship(ctx, initAMessage.Payload(),
+		userAInitiation); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 

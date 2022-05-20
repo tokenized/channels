@@ -78,17 +78,6 @@ func (c *Client) BaseKey() bitcoin.Key {
 	return c.baseKey
 }
 
-func (c *Client) ChannelKey(channel *Channel) bitcoin.Key {
-	key, err := c.BaseKey().AddHash(channel.Hash())
-	if err != nil {
-		// This can only happen if the hash creates an out of range key which should have been
-		// checked already.
-		panic(fmt.Sprintf("Failed to add hash to key : %s", err))
-	}
-
-	return key
-}
-
 func (c *Client) Channel(index int) *Channel {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -96,14 +85,17 @@ func (c *Client) Channel(index int) *Channel {
 	return c.channels[index]
 }
 
-func GetWriteToken(peerChannel *peer_channels.Channel) string {
-	for _, token := range peerChannel.AccessTokens {
-		if token.CanWrite {
-			return token.Token
+func (c *Client) GetChannel(channelID string) (*Channel, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	for _, channel := range c.channels {
+		if channel.incoming.HasPeerChannelID(channelID) {
+			return channel, nil
 		}
 	}
 
-	return ""
+	return nil, nil
 }
 
 // CreatePublicChannel creates a new channel to share publicly so other users can initiation
@@ -123,8 +115,8 @@ func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
 		},
 	}
 
-	hash, _ := wallet.GenerateHashKey(c.BaseKey(), contextID)
-	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, peerChannels, c.store,
+	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
 
 	c.lock.Lock()
@@ -146,12 +138,12 @@ func (c *Client) CreateRelationshipChannel(ctx context.Context,
 		{
 			BaseURL:    peer_channels.MockClientURL,
 			ID:         peerChannel.ID,
-			WriteToken: GetWriteToken(peerChannel),
+			WriteToken: peerChannel.GetWriteToken(),
 		},
 	}
 
-	hash, _ := wallet.GenerateHashKey(c.BaseKey(), contextID)
-	channel := NewChannel(ChannelTypeRelationship, hash, peerChannels, c.store,
+	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
 
 	c.lock.Lock()
@@ -159,19 +151,6 @@ func (c *Client) CreateRelationshipChannel(ctx context.Context,
 	c.lock.Unlock()
 
 	return channel, nil
-}
-
-func (c *Client) GetChannel(channelID string) (*Channel, error) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	for _, channel := range c.channels {
-		if channel.incoming.HasPeerChannelID(channelID) {
-			return channel, nil
-		}
-	}
-
-	return nil, nil
 }
 
 func (c *Client) GetUnprocessedMessages(ctx context.Context) (ChannelMessages, error) {
@@ -365,7 +344,12 @@ func (c *Client) Load(ctx context.Context) error {
 	// Load channels
 	c.channels = make(Channels, len(c.channelHashes))
 	for i, channelHash := range c.channelHashes {
-		channel, err := LoadChannel(ctx, c.store, c.peerChannelsFactory, channelHash)
+		channelKey, err := c.BaseKey().AddHash(channelHash)
+		if err != nil {
+			return errors.Wrap(err, "add hash")
+		}
+
+		channel, err := LoadChannel(ctx, c.store, c.peerChannelsFactory, channelHash, channelKey)
 		if err != nil {
 			return errors.Wrapf(err, "channel %d: %s", i, channelHash)
 		}

@@ -108,7 +108,7 @@ func (r *RelationshipUpdate) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDRelationships}, payload}, nil
 }
 
-func ParseRelationship(payload envelope.Data) (ChannelsMessage, error) {
+func ParseRelationship(payload envelope.Data) (Message, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
@@ -151,7 +151,7 @@ func ParseRelationship(payload envelope.Data) (ChannelsMessage, error) {
 	return result, nil
 }
 
-func RelationshipsMessageForType(messageType RelationshipsMessageType) ChannelsMessage {
+func RelationshipsMessageForType(messageType RelationshipsMessageType) Message {
 	switch messageType {
 	case RelationshipsMessageTypeInitiation:
 		return &RelationshipInitiation{}
@@ -164,7 +164,7 @@ func RelationshipsMessageForType(messageType RelationshipsMessageType) ChannelsM
 	}
 }
 
-func RelationshipsMessageTypeFor(message ChannelsMessage) RelationshipsMessageType {
+func RelationshipsMessageTypeFor(message Message) RelationshipsMessageType {
 	switch message.(type) {
 	case *RelationshipInitiation:
 		return RelationshipsMessageTypeInitiation

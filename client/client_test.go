@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/channels/wallet"
-	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
@@ -99,41 +97,13 @@ func Test_Initiate(t *testing.T) {
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
 	initiation := &channels.RelationshipInitiation{
-		PublicKey:          client2.ChannelKey(user2Channel).PublicKey(),
+		PublicKey:          user2Channel.Key().PublicKey(),
 		PeerChannels:       user2Channel.IncomingPeerChannels(),
 		SupportedProtocols: SupportedProtocols(),
 		Identity:           *user2Identity,
 	}
 
-	initPayload, err := initiation.Write()
-	if err != nil {
-		t.Fatalf("Failed to write initiation message : %s", err)
-	}
-
-	initRandHash := randHash()
-	signature, err := channels.Sign(initPayload, client2.ChannelKey(user2Channel), &initRandHash,
-		false)
-	if err != nil {
-		t.Fatalf("Failed to sign initiation message : %s", err)
-	}
-
-	initPayload, err = signature.Wrap(initPayload)
-	if err != nil {
-		t.Fatalf("Failed to wrap initiation message : %s", err)
-	}
-
-	scriptItems := envelopeV1.Wrap(initPayload)
-	script, err := scriptItems.Script()
-	if err != nil {
-		t.Fatalf("Failed to create script : %s", err)
-	}
-
-	initiationMessage, err := user2Channel.NewMessage(ctx)
-	if err != nil {
-		t.Fatalf("Failed to create a new message : %s", err)
-	}
-	initiationMessage.SetPayload(script)
-	if err := user2Channel.SendMessage(ctx, initiationMessage); err != nil {
+	if err := user2Channel.SendMessage(ctx, initiation, nil); err != nil {
 		t.Fatalf("Failed to send initiation : %s", err)
 	}
 
@@ -153,48 +123,35 @@ func Test_Initiate(t *testing.T) {
 
 	initiationFound := false
 	for _, channelMessage := range user1Messages {
-		message := channelMessage.Message
-
-		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload()))
+		wMessage, err := channels.Unwrap(channelMessage.Message.Payload())
 		if err != nil {
-			t.Fatalf("Failed to parse envelope : %s", err)
+			t.Fatalf("Failed to umwrap message : %s", err)
 		}
 
-		_, payload, err = channels.ParseSigned(payload)
-		if err != nil {
-			t.Fatalf("Failed to parse signature : %s", err)
+		if wMessage.Signature == nil {
+			t.Errorf("Message not signed")
 		}
 
-		var receivedResponse *channels.Response
-		receivedResponse, payload, err = channels.ParseResponse(payload)
-		if err != nil {
-			t.Fatalf("Failed to parse channels : %s", err)
-		}
-		if receivedResponse != nil {
+		if wMessage.Response != nil {
 			t.Errorf("Should not be a response")
 		}
 
-		relationshipMsg, err := channels.ParseRelationship(payload)
-		if err != nil {
-			t.Fatalf("Failed to parse relationship : %s", err)
-		}
-
-		if relationshipMsg == nil {
+		if wMessage.Message == nil {
 			continue
 		}
 
-		js, err := json.MarshalIndent(relationshipMsg, "", "  ")
+		js, err := json.MarshalIndent(wMessage.Message, "", "  ")
 		t.Logf("User 1 message : %s", js)
 
-		initiation, ok := relationshipMsg.(*channels.RelationshipInitiation)
+		initiation, ok := wMessage.Message.(*channels.RelationshipInitiation)
 		if !ok {
 			continue
 		}
 		initiationFound = true
 
-		if !initiation.PublicKey.Equal(client2.ChannelKey(user2Channel).PublicKey()) {
+		if !initiation.PublicKey.Equal(user2Channel.Key().PublicKey()) {
 			t.Errorf("Wrong public key in initiation : got %s, want %s",
-				initiation.PublicKey, client2.ChannelKey(user2Channel).PublicKey())
+				initiation.PublicKey, user2Channel.Key().PublicKey())
 		}
 
 		if initiation.PeerChannels[0].ID != user2Channel.IncomingPeerChannels()[0].ID {
@@ -202,60 +159,21 @@ func Test_Initiate(t *testing.T) {
 				initiation.PeerChannels[0].ID, user2Channel.IncomingPeerChannels()[0].ID)
 		}
 
-		if err := user1Channel.InitializeRelationship(ctx, initiation); err != nil {
+		if err := user1Channel.InitializeRelationship(ctx, channelMessage.Message.Payload(),
+			initiation); err != nil {
 			t.Fatalf("Failed to initialize channel : %s", err)
 		}
 
 		// Respond to relationship initiation
 		responseInitiation := &channels.RelationshipInitiation{
-			PublicKey:          client1.ChannelKey(user1Channel).PublicKey(),
+			PublicKey:          user1Channel.Key().PublicKey(),
 			PeerChannels:       user1Channel.IncomingPeerChannels(),
 			SupportedProtocols: SupportedProtocols(),
 			Identity:           *user1Identity,
 		}
 
-		responsePayload, err := responseInitiation.Write()
-		if err != nil {
-			t.Fatalf("Failed to write initiation message : %s", err)
-		}
-
-		response := &channels.Response{
-			MessageID: message.ID(),
-		}
-
-		if response.MessageID != 0 {
-			t.Errorf("Wrong message id for response : got %d, want %d", response.MessageID, 0)
-		}
-
-		responsePayload, err = response.Wrap(responsePayload)
-		if err != nil {
-			t.Fatalf("Failed to write response wrapper : %s", err)
-		}
-
-		responseHash := randHash()
-		signature, err = channels.Sign(responsePayload, client1.ChannelKey(user1Channel),
-			&responseHash, false)
-		if err != nil {
-			t.Fatalf("Failed to sign initiation message : %s", err)
-		}
-
-		responsePayload, err = signature.Wrap(responsePayload)
-		if err != nil {
-			t.Fatalf("Failed to wrap initiation message : %s", err)
-		}
-
-		scriptItems := envelopeV1.Wrap(responsePayload)
-		script, err := scriptItems.Script()
-		if err != nil {
-			t.Fatalf("Failed to create script : %s", err)
-		}
-
-		responseMessage, err := user1Channel.NewMessage(ctx)
-		if err != nil {
-			t.Fatalf("Failed to create a new message : %s", err)
-		}
-		responseMessage.SetPayload(script)
-		if err := user1Channel.SendMessage(ctx, responseMessage); err != nil {
+		responseID := channelMessage.Message.ID()
+		if err := user1Channel.SendMessage(ctx, responseInitiation, &responseID); err != nil {
 			t.Fatalf("Failed to send initiation : %s", err)
 		}
 	}
@@ -280,46 +198,33 @@ func Test_Initiate(t *testing.T) {
 
 	responseFound := false
 	for _, channelMessage := range user2Messages {
-		message := channelMessage.Message
-
-		payload, err := envelopeV1.Parse(bytes.NewReader(message.Payload()))
+		wMessage, err := channels.Unwrap(channelMessage.Message.Payload())
 		if err != nil {
-			t.Fatalf("Failed to parse envelope : %s", err)
+			t.Fatalf("Failed to umwrap message : %s", err)
 		}
 
-		_, payload, err = channels.ParseSigned(payload)
-		if err != nil {
-			t.Fatalf("Failed to parse signature : %s", err)
+		if wMessage.Signature == nil {
+			t.Errorf("Message not signed")
 		}
 
-		var receivedResponse *channels.Response
-		receivedResponse, payload, err = channels.ParseResponse(payload)
-		if err != nil {
-			t.Fatalf("Failed to parse response : %s", err)
-		}
-		if receivedResponse == nil {
-			t.Errorf("Response does not contain response header")
+		if wMessage.Response == nil {
+			t.Errorf("Should be a response")
 		}
 
-		relationshipMsg, err := channels.ParseRelationship(payload)
-		if err != nil {
-			t.Fatalf("Failed to parse relationship : %s", err)
-		}
-
-		if relationshipMsg == nil {
+		if wMessage.Message == nil {
 			continue
 		}
 
-		js, err := json.MarshalIndent(relationshipMsg, "", "  ")
+		js, err := json.MarshalIndent(wMessage.Message, "", "  ")
 		t.Logf("User 2 message : %s", js)
 
-		msg, ok := relationshipMsg.(*channels.RelationshipInitiation)
+		msg, ok := wMessage.Message.(*channels.RelationshipInitiation)
 		if !ok {
 			continue
 		}
 		responseFound = true
 
-		publicKey := client1.ChannelKey(user1Channel).PublicKey()
+		publicKey := user1Channel.Key().PublicKey()
 
 		if !msg.PublicKey.Equal(publicKey) {
 			t.Errorf("Wrong public key in initiation response : got %s, want %s",

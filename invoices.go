@@ -324,7 +324,7 @@ type InvoiceItem struct {
 
 type InvoiceItems []*InvoiceItem
 
-func ParseInvoice(payload envelope.Data) (ChannelsMessage, error) {
+func ParseInvoice(payload envelope.Data) (Message, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
@@ -396,7 +396,7 @@ func ExtractInvoice(tx *wire.MsgTx) (*Invoice, error) {
 	return nil, ErrInvoiceMissing
 }
 
-func InvoicesMessageForType(messageType InvoicesMessageType) ChannelsMessage {
+func InvoicesMessageForType(messageType InvoicesMessageType) Message {
 	switch InvoicesMessageType(messageType) {
 	case InvoicesMessageTypeRequestMenu:
 		return &RequestMenu{}
@@ -419,7 +419,7 @@ func InvoicesMessageForType(messageType InvoicesMessageType) ChannelsMessage {
 	}
 }
 
-func InvoicesMessageTypeFor(message ChannelsMessage) InvoicesMessageType {
+func InvoicesMessageTypeFor(message Message) InvoicesMessageType {
 	switch message.(type) {
 	case *RequestMenu:
 		return InvoicesMessageTypeRequestMenu

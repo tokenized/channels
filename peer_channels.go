@@ -80,7 +80,7 @@ func (m *DeleteChannel) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDPeerChannels}, payload}, nil
 }
 
-func ParsePeerChannel(payload envelope.Data) (ChannelsMessage, error) {
+func ParsePeerChannel(payload envelope.Data) (Message, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
@@ -123,7 +123,7 @@ func ParsePeerChannel(payload envelope.Data) (ChannelsMessage, error) {
 	return result, nil
 }
 
-func PeerChannelsMessageForType(messageType PeerChannelsMessageType) ChannelsMessage {
+func PeerChannelsMessageForType(messageType PeerChannelsMessageType) Message {
 	switch messageType {
 	case PeerChannelsMessageTypeCreateChannel:
 		return &CreateChannel{}
@@ -136,7 +136,7 @@ func PeerChannelsMessageForType(messageType PeerChannelsMessageType) ChannelsMes
 	}
 }
 
-func PeerChannelsMessageTypeFor(message ChannelsMessage) PeerChannelsMessageType {
+func PeerChannelsMessageTypeFor(message Message) PeerChannelsMessageType {
 	switch message.(type) {
 	case *CreateChannel:
 		return PeerChannelsMessageTypeCreateChannel
