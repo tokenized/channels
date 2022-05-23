@@ -94,12 +94,7 @@ func MockClient(ctx context.Context, store storage.StreamReadWriter,
 		panic(fmt.Sprintf("Failed to create account : %s", err))
 	}
 
-	mockClient, err := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to create client : %s", err))
-	}
-
-	peerAccountClient := peer_channels.NewAccountClient(mockClient, *accountID, *accountToken)
+	peerAccountClient := peer_channels.NewAccountClient(peerClient, *accountID, *accountToken)
 
 	key, err := bitcoin.GenerateKey(bitcoin.MainNet)
 	if err != nil {

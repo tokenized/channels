@@ -110,10 +110,25 @@ func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
 
 	peerChannels := channels.PeerChannels{
 		{
-			BaseURL: peer_channels.MockClientURL,
+			BaseURL: c.peerAccountClient.BaseURL(),
 			ID:      peerChannel.ID,
 		},
 	}
+
+	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, key, peerChannels, c.store,
+		c.peerChannelsFactory)
+
+	c.lock.Lock()
+	c.channels = append(c.channels, channel)
+	c.lock.Unlock()
+
+	return channel, nil
+}
+
+// RegisterRelationshipInitiationChannel registers an existing public channel with the client.
+func (c *Client) RegisterRelationshipInitiationChannel(ctx context.Context,
+	contextID bitcoin.Hash32, peerChannels channels.PeerChannels) (*Channel, error) {
 
 	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
 	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, key, peerChannels, c.store,
@@ -136,11 +151,26 @@ func (c *Client) CreateRelationshipChannel(ctx context.Context,
 
 	peerChannels := channels.PeerChannels{
 		{
-			BaseURL:    peer_channels.MockClientURL,
+			BaseURL:    c.peerAccountClient.BaseURL(),
 			ID:         peerChannel.ID,
 			WriteToken: peerChannel.GetWriteToken(),
 		},
 	}
+
+	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
+		c.peerChannelsFactory)
+
+	c.lock.Lock()
+	c.channels = append(c.channels, channel)
+	c.lock.Unlock()
+
+	return channel, nil
+}
+
+// RegisterRelationshipChannel registers an existing channel with the client.
+func (c *Client) RegisterRelationshipChannel(ctx context.Context,
+	contextID bitcoin.Hash32, peerChannels channels.PeerChannels) (*Channel, error) {
 
 	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
 	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,

@@ -26,8 +26,6 @@ func Test_Invoices_Menu(t *testing.T) {
 	bitcoinProtocol := []byte("Bitcoin")
 	item1BitcoinQuantity := uint64(540000)
 
-	vendorName := "Vendor 1"
-
 	msg := &Menu{
 		Items: Items{
 			{
@@ -50,9 +48,6 @@ func Test_Invoices_Menu(t *testing.T) {
 					},
 				},
 			},
-		},
-		Vendor: &Identity{
-			Name: &vendorName,
 		},
 	}
 

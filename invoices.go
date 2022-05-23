@@ -93,8 +93,7 @@ func (m *RequestMenu) Write() (envelope.Data, error) {
 
 // Menu represents a set of items available to include in an invoice.
 type Menu struct {
-	Items  Items     `bsor:"1" json:"items"`
-	Vendor *Identity `bsor:"2" json:"vendor,omitempty"`
+	Items Items `bsor:"1" json:"items"`
 }
 
 func (*Menu) ProtocolID() envelope.ProtocolID {
