@@ -368,6 +368,9 @@ func (c *Client) Load(ctx context.Context) error {
 	path := fmt.Sprintf("%s/%s", clientsPath, c.BaseKey().PublicKey())
 
 	if err := storage.StreamRead(ctx, c.store, path, c); err != nil {
+		if errors.Cause(err) == storage.ErrNotFound {
+			return nil
+		}
 		return errors.Wrap(err, "read")
 	}
 

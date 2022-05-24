@@ -11,6 +11,7 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
+	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/txbuilder"
@@ -97,11 +98,15 @@ func Test_Invoice(t *testing.T) {
 		Tx: channels.ExpandedTx{
 			Tx: tx,
 		},
-		Fees: channels.FeeQuotes{
+		Fees: merchant_api.FeeQuotes{
 			{
-				FeeType: channels.FeeTypeStandard,
-				MiningFee: channels.Fee{
+				FeeType: merchant_api.FeeTypeStandard,
+				MiningFee: merchant_api.Fee{
 					Satoshis: 500,
+					Bytes:    1000,
+				},
+				RelayFee: merchant_api.Fee{
+					Satoshis: 250,
 					Bytes:    1000,
 				},
 			},

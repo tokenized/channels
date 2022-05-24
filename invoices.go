@@ -8,6 +8,7 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
+	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -24,6 +25,10 @@ const (
 	InvoicesMessageTypeInvoiceTx     = InvoicesMessageType(5)
 	InvoicesMessageTypePayment       = InvoicesMessageType(6)
 	InvoicesMessageTypePaymentAccept = InvoicesMessageType(7)
+
+	// InvoicesRejectCodeTxNotAccepted is a code specific to the invoices protocol that is placed
+	// in a Reject message to signify that a Bitcoin transaction was not accepted by the network.
+	InvoicesRejectCodeTxNotAccepted = uint32(1)
 )
 
 var (
@@ -184,8 +189,8 @@ func (m *Invoice) Write() (envelope.Data, error) {
 // InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
 // payments for the items contained in the invoice.
 type InvoiceTx struct {
-	Tx   ExpandedTx `bsor:"1" json:"tx"`
-	Fees FeeQuotes  `bsor:"2" json:"fees"` // tx fee requirements
+	Tx   ExpandedTx             `bsor:"1" json:"tx"`
+	Fees merchant_api.FeeQuotes `bsor:"2" json:"fees"` // tx fee requirements
 }
 
 func (*InvoiceTx) ProtocolID() envelope.ProtocolID {
@@ -511,5 +516,14 @@ func (v InvoicesMessageType) String() string {
 		return "accept"
 	default:
 		return ""
+	}
+}
+
+func InvoicesRejectCodeToString(code uint32) string {
+	switch code {
+	case InvoicesRejectCodeTxNotAccepted:
+		return "tx_not_accepted"
+	default:
+		return "parse_error"
 	}
 }

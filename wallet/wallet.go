@@ -10,6 +10,7 @@ import (
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
+	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/txbuilder"
@@ -42,10 +43,17 @@ var (
 
 type Config struct {
 	// SatoshiBreakValue is the lowest number used to split up satoshi values.
-	SatoshiBreakValue uint64 `default:"10000" json:"satoshi_break_value"`
+	SatoshiBreakValue uint64 `default:"10000" json:"satoshi_break_value" envconfig:"SATOSHI_BREAK_VALUE"`
 
 	// BreakCount is the most pieces a satoshi or token value will be broken into.
-	BreakCount int `default:"5" json:"break_count"`
+	BreakCount int `default:"5" json:"break_count" envconfig:"BREAK_COUNT"`
+}
+
+func DefaultConfig() Config {
+	return Config{
+		SatoshiBreakValue: 10000,
+		BreakCount:        5,
+	}
 }
 
 type MerkleProofVerifier interface {
@@ -60,7 +68,7 @@ type MerkleProofVerifier interface {
 
 type FeeQuoter interface {
 	// GetFeeQuotes retrieves an up to date fee quote to be used for applying a fee to a new tx.
-	GetFeeQuotes(ctx context.Context) (channels.FeeQuotes, error)
+	GetFeeQuotes(ctx context.Context) (merchant_api.FeeQuotes, error)
 }
 
 type Wallet struct {
@@ -109,8 +117,8 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 	}
 
 	outputs, err := txbuilder.BreakValueLockingScripts(value, w.config.SatoshiBreakValue,
-		lockingScripts, feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate(),
-		feeQuotes.GetQuote(channels.FeeTypeStandard).MiningFee.Rate(), false, false)
+		lockingScripts, channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).RelayFee.Rate(),
+		channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).MiningFee.Rate(), false, false)
 	if err != nil {
 		return nil, errors.Wrap(err, "break value")
 	}
@@ -138,8 +146,8 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 		return errors.Wrap(err, "fee quotes")
 	}
 
-	miningFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).MiningFee.Rate()
-	relayFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate()
+	miningFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).MiningFee.Rate()
+	relayFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).RelayFee.Rate()
 
 	txb, err := txbuilder.NewTxBuilderFromWire(miningFeeRate, relayFeeRate, etx.Tx,
 		etx.Ancestors.GetTxs())
@@ -196,8 +204,8 @@ func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 		return errors.Wrap(err, "fee quotes")
 	}
 
-	miningFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).MiningFee.Rate()
-	relayFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate()
+	miningFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).MiningFee.Rate()
+	relayFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).RelayFee.Rate()
 
 	txb, err := txbuilder.NewTxBuilderFromWire(miningFeeRate, relayFeeRate, etx.Tx,
 		etx.Ancestors.GetTxs())
@@ -404,6 +412,9 @@ func (w *Wallet) GetKeyForLockingScript(script bitcoin.Script) *Key {
 func (w *Wallet) Load(ctx context.Context) error {
 	path := fmt.Sprintf("%s/wallet", walletPath)
 	if err := storage.StreamRead(ctx, w.store, path, w); err != nil {
+		if errors.Cause(err) == storage.ErrNotFound {
+			return nil
+		}
 		return errors.Wrap(err, "read")
 	}
 

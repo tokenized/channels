@@ -87,11 +87,15 @@ func (r Reject) CodeToString() string {
 		return "relationships:" + RelationshipsRejectCodeToString(r.Code)
 	}
 
-	if r.Code == 0 {
-		return string(r.RejectProtocolID) + ":parse"
+	if bytes.Equal(r.RejectProtocolID, ProtocolIDInvoices) {
+		return "invoices:" + InvoicesRejectCodeToString(r.Code)
 	}
 
-	return string(r.RejectProtocolID) + ":unknown"
+	if r.Code == 0 {
+		return r.RejectProtocolID.String() + ":parse"
+	}
+
+	return r.RejectProtocolID.String() + ":unknown"
 }
 
 func ParseReject(payload envelope.Data) (*Reject, error) {

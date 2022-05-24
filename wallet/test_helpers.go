@@ -7,6 +7,7 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/txbuilder"
 	"github.com/tokenized/pkg/wire"
@@ -82,7 +83,7 @@ func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin
 		panic(fmt.Sprintf("Failed to get fee quote : %s", err))
 	}
 
-	dustFeeRate := feeQuotes.GetQuote(channels.FeeTypeStandard).RelayFee.Rate()
+	dustFeeRate := feeQuotes.GetQuote(merchant_api.FeeTypeStandard).RelayFee.Rate()
 
 	result := make([]*bitcoin.UTXO, len(values))
 	for i, value := range values {

@@ -3,34 +3,34 @@ package wallet
 import (
 	"context"
 
-	"github.com/tokenized/channels"
+	"github.com/tokenized/pkg/merchant_api"
 )
 
 type MockFeeQuoter struct {
-	current channels.FeeQuotes
+	current merchant_api.FeeQuotes
 }
 
 func NewMockFeeQuoter() *MockFeeQuoter {
 	return &MockFeeQuoter{
-		current: channels.FeeQuotes{
+		current: merchant_api.FeeQuotes{
 			{
-				FeeType: channels.FeeTypeStandard,
-				MiningFee: channels.Fee{
+				FeeType: merchant_api.FeeTypeStandard,
+				MiningFee: merchant_api.Fee{
 					Satoshis: 250,
 					Bytes:    1000,
 				},
-				RelayFee: channels.Fee{
+				RelayFee: merchant_api.Fee{
 					Satoshis: 100,
 					Bytes:    1000,
 				},
 			},
 			{
-				FeeType: channels.FeeTypeData,
-				MiningFee: channels.Fee{
+				FeeType: merchant_api.FeeTypeData,
+				MiningFee: merchant_api.Fee{
 					Satoshis: 100,
 					Bytes:    1000,
 				},
-				RelayFee: channels.Fee{
+				RelayFee: merchant_api.Fee{
 					Satoshis: 100,
 					Bytes:    1000,
 				},
@@ -39,6 +39,6 @@ func NewMockFeeQuoter() *MockFeeQuoter {
 	}
 }
 
-func (m *MockFeeQuoter) GetFeeQuotes(ctx context.Context) (channels.FeeQuotes, error) {
+func (m *MockFeeQuoter) GetFeeQuotes(ctx context.Context) (merchant_api.FeeQuotes, error) {
 	return m.current, nil
 }
