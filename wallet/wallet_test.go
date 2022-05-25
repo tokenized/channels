@@ -54,14 +54,34 @@ func Test_Wallet_Serialize(t *testing.T) {
 		t.Fatalf("Failed to load wallet : %s", err)
 	}
 
-	if len(readWallet.Outputs) != len(wallet.Outputs) {
-		t.Errorf("Wrong read output count : got %d, want %d", len(readWallet.Outputs),
-			len(wallet.Outputs))
+	if len(readWallet.outputs) != len(wallet.outputs) {
+		t.Fatalf("Wrong read output count : got %d, want %d", len(readWallet.outputs),
+			len(wallet.outputs))
 	}
 
-	if len(readWallet.KeySet) != len(wallet.KeySet) {
-		t.Errorf("Wrong read key set count : got %d, want %d", len(readWallet.KeySet),
-			len(wallet.KeySet))
+	for i, output := range wallet.outputs {
+		t.Logf("Output %d : %s:%d", i, output.TxID, output.Index)
+	}
+
+	for i, output := range wallet.outputs {
+		t.Logf("Read output %d : %s:%d", i, readWallet.outputs[i].TxID, readWallet.outputs[i].Index)
+		if !output.TxID.Equal(&readWallet.outputs[i].TxID) {
+			t.Errorf("Wrong output txid at %d : got %s, want %s", i, readWallet.outputs[i].TxID,
+				output.TxID)
+		}
+	}
+
+	if len(readWallet.keys) != len(wallet.keys) {
+		t.Errorf("Wrong read key set count : got %d, want %d", len(readWallet.keys),
+			len(wallet.keys))
+	}
+
+	for contextID, keys := range wallet.keys {
+		t.Logf("Keys %s : %d", contextID, len(keys))
+	}
+
+	for contextID, _ := range wallet.keys {
+		t.Logf("Read keys %s : %d", contextID, len(readWallet.keys[contextID]))
 	}
 
 	if !reflect.DeepEqual(readWallet, wallet) {

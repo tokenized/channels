@@ -28,7 +28,7 @@ func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *channels.ExpandedT
 func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 	txid bitcoin.Hash32) error {
 
-	tx, err := w.fetchTx(ctx, txid)
+	tx, err := fetchTx(ctx, w.store, txid)
 	if err != nil {
 		return errors.Wrap(err, "fetch tx")
 	}

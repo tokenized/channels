@@ -22,6 +22,10 @@ import (
 const (
 	walletPath    = "channels_wallet"
 	walletVersion = uint8(0)
+
+	// pruneDepth is the number of blocks below the latest block height at which spent UTXOs and
+	// confirmed and spent transactions will be moved to "archive" storage.
+	pruneDepth = uint32(1000)
 )
 
 var (
@@ -74,18 +78,23 @@ type FeeQuoter interface {
 type Wallet struct {
 	baseKey bitcoin.Key
 
-	KeySet  KeySet
-	Outputs Outputs
+	keys     KeySet
+	keysLock sync.RWMutex
+
+	outputs     Outputs
+	outputsLock sync.RWMutex
 
 	config              Config
-	store               storage.StreamReadWriter
+	store               storage.StreamStorage
 	merkleProofVerifier MerkleProofVerifier
 	feeQuoter           FeeQuoter
+
+	blockHeight uint32
 
 	lock sync.RWMutex
 }
 
-func NewWallet(config Config, store storage.StreamReadWriter,
+func NewWallet(config Config, store storage.StreamStorage,
 	merkleProofVerifier MerkleProofVerifier, feeQuoter FeeQuoter, key bitcoin.Key) *Wallet {
 	return &Wallet{
 		config:              config,
@@ -93,8 +102,23 @@ func NewWallet(config Config, store storage.StreamReadWriter,
 		merkleProofVerifier: merkleProofVerifier,
 		feeQuoter:           feeQuoter,
 		baseKey:             key,
-		KeySet:              make(map[bitcoin.Hash32]Keys),
+		keys:                make(KeySet),
 	}
+}
+
+func (w *Wallet) SetBlockHeight(ctx context.Context, blockHeight uint32) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	w.blockHeight = blockHeight
+	return nil
+}
+
+func (w *Wallet) BlockHeight() uint32 {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+
+	return w.blockHeight
 }
 
 // CreateBitcoinReceive creates a transaction receiving the specified amount of bitcoin.
@@ -189,7 +213,7 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 	etx *channels.ExpandedTx) error {
 
-	wkeys, err := w.GetKeys(contextID)
+	wkeys, err := w.GetKeys(ctx, contextID)
 	if err != nil {
 		return errors.Wrap(err, "get keys")
 	}
@@ -222,12 +246,13 @@ func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 
 func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
 	etx *channels.ExpandedTx) ([]bitcoin.UTXO, error) {
-	w.lock.Lock()
-	defer w.lock.Unlock()
+	w.outputsLock.RLock()
+	defer w.outputsLock.RUnlock()
 
 	var result []bitcoin.UTXO
-	for _, output := range w.Outputs {
-		if output.SpentTxID != nil {
+	for _, output := range w.outputs {
+		if output.SpentTxID != nil && output.ReservedContextID == nil &&
+			output.State == TxStateSafe {
 			continue
 		}
 
@@ -242,42 +267,16 @@ func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
 	return result, nil
 }
 
-func (w *Wallet) fetchTx(ctx context.Context, txid bitcoin.Hash32) (*Tx, error) {
-	tx := &Tx{}
-
-	path := fmt.Sprintf("%s/%s", txsPath, txid)
-	if err := storage.StreamRead(ctx, w.store, path, tx); err != nil {
-		if errors.Cause(err) == storage.ErrNotFound {
-			return nil, nil
-		}
-		return nil, errors.Wrap(err, "read")
-	}
-
-	return tx, nil
-}
-
-func (w *Wallet) saveTx(ctx context.Context, tx *Tx) error {
-	path := fmt.Sprintf("%s/%s", txsPath, tx.Tx.TxHash())
-	if err := storage.StreamWrite(ctx, w.store, path, tx); err != nil {
-		return errors.Wrap(err, "write")
-	}
-
-	return nil
-}
-
 func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Hash32) error {
 	txid := *tx.TxHash()
 
-	w.lock.Lock()
-	defer w.lock.Unlock()
-
-	keys, exists := w.KeySet[contextID]
-	if !exists {
-		return errors.Wrap(ErrContextIDNotFound, contextID.String())
+	keys, err := w.GetKeys(ctx, contextID)
+	if err != nil {
+		return errors.Wrap(err, "keys")
 	}
 
 	// Check if tx was already added.
-	walletTx, err := w.fetchTx(ctx, txid)
+	walletTx, err := fetchTx(ctx, w.store, txid)
 	if err != nil {
 		return errors.Wrap(err, "fetch tx")
 	}
@@ -286,7 +285,8 @@ func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Ha
 	}
 
 	// Check for spent outputs.
-	for _, output := range w.Outputs {
+	w.outputsLock.Lock()
+	for _, output := range w.outputs {
 		for _, txin := range tx.TxIn {
 			if !output.TxID.Equal(&txin.PreviousOutPoint.Hash) {
 				continue
@@ -296,10 +296,13 @@ func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Ha
 			}
 
 			if output.SpentTxID != nil {
+				w.outputsLock.Unlock()
 				return errors.Wrap(ErrOutputAlreadySpent, output.SpentTxID.String())
 			}
 
 			output.SpentTxID = &txid
+			output.SpentHeight = w.blockHeight
+			output.modified = true
 			logger.InfoWithFields(ctx, []logger.Field{
 				logger.JSON("output", output),
 			}, "Output spent")
@@ -319,20 +322,29 @@ func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Ha
 				Value:          txout.Value,
 				LockingScript:  txout.LockingScript,
 				DerivationHash: &bitcoin.Hash32{},
+				Timestamp:      channels.Now(),
+				modified:       true,
 			}
 			copy(output.DerivationHash[:], key.Hash[:])
 
 			logger.InfoWithFields(ctx, []logger.Field{
 				logger.JSON("output", output),
 			}, "New Output")
-			w.Outputs = append(w.Outputs, output)
+			w.outputs = append(w.outputs, output)
 		}
 	}
+
+	if err := w.outputs.save(ctx, w.store, w.blockHeight); err != nil {
+		w.outputsLock.Unlock()
+		return errors.Wrap(err, "save outputs")
+	}
+
+	w.outputsLock.Unlock()
 
 	walletTx = &Tx{
 		Tx: tx,
 	}
-	if err := w.saveTx(ctx, walletTx); err != nil {
+	if err := walletTx.save(ctx, w.store); err != nil {
 		return errors.Wrap(err, "save tx")
 	}
 
@@ -349,7 +361,7 @@ func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.M
 	defer w.lock.Unlock()
 
 	// Check if tx was already added.
-	walletTx, err := w.fetchTx(ctx, *txid)
+	walletTx, err := fetchTx(ctx, w.store, *txid)
 	if err != nil {
 		return errors.Wrap(err, "fetch tx")
 	}
@@ -364,8 +376,117 @@ func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.M
 		return errors.Wrap(err, "add merkle proof")
 	}
 
-	if err := w.saveTx(ctx, walletTx); err != nil {
+	if err := walletTx.save(ctx, w.store); err != nil {
 		return errors.Wrap(err, "save tx")
+	}
+
+	return nil
+}
+
+func (w *Wallet) MarkTxSafe(ctx context.Context, txid bitcoin.Hash32) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	// Check if tx was already added.
+	walletTx, err := fetchTx(ctx, w.store, txid)
+	if err != nil {
+		return errors.Wrap(err, "fetch tx")
+	}
+	if walletTx == nil {
+		return errors.Wrap(ErrUnknownTx, txid.String())
+	}
+
+	if walletTx.State == TxStateSafe {
+		return nil
+	}
+	walletTx.State = TxStateSafe
+
+	if err := walletTx.save(ctx, w.store); err != nil {
+		return errors.Wrap(err, "save tx")
+	}
+
+	if err := w.markOutputs(ctx, txid, TxStateSafe); err != nil {
+		return errors.Wrap(err, "utxos")
+	}
+
+	return nil
+}
+
+func (w *Wallet) MarkTxUnsafe(ctx context.Context, txid bitcoin.Hash32) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	// Check if tx was already added.
+	walletTx, err := fetchTx(ctx, w.store, txid)
+	if err != nil {
+		return errors.Wrap(err, "fetch tx")
+	}
+	if walletTx == nil {
+		return errors.Wrap(ErrUnknownTx, txid.String())
+	}
+
+	if walletTx.State == TxStateUnsafe {
+		return nil
+	}
+	walletTx.State = TxStateUnsafe
+
+	if err := walletTx.save(ctx, w.store); err != nil {
+		return errors.Wrap(err, "save tx")
+	}
+
+	if err := w.markOutputs(ctx, txid, TxStateUnsafe); err != nil {
+		return errors.Wrap(err, "utxos")
+	}
+
+	return nil
+}
+
+func (w *Wallet) MarkTxCancelled(ctx context.Context, txid bitcoin.Hash32) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	// Check if tx was already added.
+	walletTx, err := fetchTx(ctx, w.store, txid)
+	if err != nil {
+		return errors.Wrap(err, "fetch tx")
+	}
+	if walletTx == nil {
+		return errors.Wrap(ErrUnknownTx, txid.String())
+	}
+
+	if walletTx.State == TxStateCancelled {
+		return nil
+	}
+	walletTx.State = TxStateCancelled
+
+	if err := walletTx.save(ctx, w.store); err != nil {
+		return errors.Wrap(err, "save tx")
+	}
+
+	if err := w.markOutputs(ctx, txid, TxStateCancelled); err != nil {
+		return errors.Wrap(err, "utxos")
+	}
+
+	return nil
+}
+
+func (w *Wallet) markOutputs(ctx context.Context, txid bitcoin.Hash32, state TxState) error {
+	w.outputsLock.Lock()
+	defer w.outputsLock.Unlock()
+
+	updated := false
+	for _, output := range w.outputs {
+		if output.TxID.Equal(&txid) && output.State != state {
+			output.State = state
+			output.modified = true
+			updated = true
+		}
+	}
+
+	if updated {
+		if err := w.outputs.save(ctx, w.store, w.BlockHeight()); err != nil {
+			return errors.Wrap(err, "save outputs")
+		}
 	}
 
 	return nil
@@ -379,36 +500,6 @@ func (w *Wallet) BaseKey() bitcoin.Key {
 	return result
 }
 
-func (w *Wallet) GetKeyForHash(hash bitcoin.Hash32) *Key {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-
-	for _, keys := range w.KeySet {
-		for _, key := range keys {
-			if key.Hash.Equal(&hash) {
-				return key
-			}
-		}
-	}
-
-	return nil
-}
-
-func (w *Wallet) GetKeyForLockingScript(script bitcoin.Script) *Key {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-
-	for _, keys := range w.KeySet {
-		for _, key := range keys {
-			if key.LockingScript.Equal(script) {
-				return key
-			}
-		}
-	}
-
-	return nil
-}
-
 func (w *Wallet) Load(ctx context.Context) error {
 	path := fmt.Sprintf("%s/wallet", walletPath)
 	if err := storage.StreamRead(ctx, w.store, path, w); err != nil {
@@ -418,6 +509,20 @@ func (w *Wallet) Load(ctx context.Context) error {
 		return errors.Wrap(err, "read")
 	}
 
+	w.outputsLock.Lock()
+	if err := w.outputs.load(ctx, w.store); err != nil {
+		w.outputsLock.Unlock()
+		return errors.Wrap(err, "outputs")
+	}
+	w.outputsLock.Unlock()
+
+	w.keysLock.Lock()
+	if err := w.keys.load(ctx, w.store, w.BaseKey()); err != nil {
+		w.keysLock.Unlock()
+		return errors.Wrap(err, "keys")
+	}
+	w.keysLock.Unlock()
+
 	return nil
 }
 
@@ -426,6 +531,20 @@ func (w *Wallet) Save(ctx context.Context) error {
 	if err := storage.StreamWrite(ctx, w.store, path, w); err != nil {
 		return errors.Wrap(err, "write")
 	}
+
+	w.outputsLock.RLock()
+	if err := w.outputs.save(ctx, w.store, w.BlockHeight()); err != nil {
+		w.outputsLock.RUnlock()
+		return errors.Wrap(err, "outputs")
+	}
+	w.outputsLock.RUnlock()
+
+	w.keysLock.RLock()
+	if err := w.keys.save(ctx, w.store); err != nil {
+		w.keysLock.RUnlock()
+		return errors.Wrap(err, "keys")
+	}
+	w.keysLock.RUnlock()
 
 	return nil
 }
@@ -442,12 +561,8 @@ func (w *Wallet) Serialize(writer io.Writer) error {
 		return errors.Wrap(err, "public key")
 	}
 
-	if err := w.KeySet.Serialize(writer); err != nil {
-		return errors.Wrap(err, "key set")
-	}
-
-	if err := w.Outputs.Serialize(writer); err != nil {
-		return errors.Wrap(err, "outputs")
+	if err := binary.Write(writer, endian, w.blockHeight); err != nil {
+		return errors.Wrap(err, "block height")
 	}
 
 	return nil
@@ -474,29 +589,8 @@ func (w *Wallet) Deserialize(r io.Reader) error {
 		return ErrWrongKey
 	}
 
-	if err := w.KeySet.Deserialize(r); err != nil {
-		return errors.Wrap(err, "key set")
-	}
-
-	if err := w.Outputs.Deserialize(r); err != nil {
-		return errors.Wrap(err, "outputs")
-	}
-
-	// Recalculate keys and locking scripts from hashes.
-	for _, keys := range w.KeySet {
-		for _, walletKey := range keys {
-			key, err := w.baseKey.AddHash(walletKey.Hash)
-			if err != nil {
-				return errors.Wrap(err, "key")
-			}
-			walletKey.Key = key
-
-			lockingScript, err := key.LockingScript()
-			if err != nil {
-				return errors.Wrap(err, "locking script")
-			}
-			walletKey.LockingScript = lockingScript
-		}
+	if err := binary.Read(r, endian, &w.blockHeight); err != nil {
+		return errors.Wrap(err, "block height")
 	}
 
 	return nil
