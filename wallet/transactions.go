@@ -9,6 +9,7 @@ import (
 
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
+	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/wire"
@@ -17,22 +18,22 @@ import (
 )
 
 const (
-	TxStatePending   = TxState(0)
+	TxStatePending   = TxState(0) // Initial time period to see double spend attempts has not passed.
 	TxStateSafe      = TxState(1) // No conflicting txs seen for initial time period.
 	TxStateUnsafe    = TxState(2) // Conflicting tx seen, but not confirmed.
 	TxStateCancelled = TxState(4) // Conflicting tx confirmed.
 
-	txsPath        = "channels_wallet/txs"
-	archiveTxsPath = "channels_wallet/archived_txs"
-	txsVersion     = uint8(0)
+	txsPath    = "channels_wallet/txs"
+	txsVersion = uint8(0)
 )
 
 type TxState uint8
 
 type Tx struct {
-	Tx           *wire.MsgTx                 `bsor:"1" json:"tx"`
-	State        TxState                     `bsor:"2" json:"safe,omitempty"`
-	MerkleProofs []*merkle_proof.MerkleProof `bsor:"3" json:"merkle_proofs,omitempty"`
+	ContextIDs   []bitcoin.Hash32            `bsor:"1" json:"context_ids"`
+	Tx           *wire.MsgTx                 `bsor:"2" json:"tx"`
+	State        TxState                     `bsor:"3" json:"safe,omitempty"`
+	MerkleProofs []*merkle_proof.MerkleProof `bsor:"4" json:"merkle_proofs,omitempty"`
 }
 
 func (tx Tx) GetMerkleProof(ctx context.Context,
@@ -50,6 +51,18 @@ func (tx Tx) GetMerkleProof(ctx context.Context,
 	}
 
 	return nil, nil
+}
+
+// AddContextID adds a context id to a tx and returns true if it wasn't already there.
+func (tx *Tx) AddContextID(hash bitcoin.Hash32) bool {
+	for _, contextID := range tx.ContextIDs {
+		if contextID.Equal(&hash) {
+			return false
+		}
+	}
+
+	tx.ContextIDs = append(tx.ContextIDs, hash)
+	return true
 }
 
 func (tx *Tx) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) error {
@@ -75,6 +88,11 @@ func (tx *Tx) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.Merk
 	}
 
 	tx.MerkleProofs = append(tx.MerkleProofs, merkleProof)
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("txid", tx.Tx.TxHash()),
+		logger.Stringer("block_hash", blockHash),
+	}, "Added merkle proof to tx")
 	return nil
 }
 

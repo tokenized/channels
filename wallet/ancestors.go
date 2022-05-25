@@ -5,6 +5,7 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/logger"
 
 	"github.com/pkg/errors"
 )
@@ -65,11 +66,78 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 	return nil
 }
 
-func (w *Wallet) VerifyExpandedTx(ctx context.Context, etx *channels.ExpandedTx) error {
+func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx) error {
+
 	verified := make(map[bitcoin.Hash32]bool)
 	for _, txin := range etx.Tx.TxIn {
 		if err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, &verified); err != nil {
 			return errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
+		}
+	}
+
+	// Save txs for future use in expanded txs for descendents of this tx.
+	for _, atx := range etx.Ancestors {
+		tx := atx.GetTx()
+		if tx == nil {
+			continue
+		}
+		txid := *tx.TxHash()
+
+		ftx, err := fetchTx(ctx, w.store, txid)
+		if err != nil {
+			return errors.Wrapf(err, "fetch tx %s", txid)
+		}
+		if ftx != nil { // already have this tx
+			modified := false
+
+			if atx.MerkleProof != nil {
+				if err := ftx.AddMerkleProof(ctx, atx.MerkleProof); err != nil {
+					if errors.Cause(err) != AlreadyHaveMerkleProof {
+						return errors.Wrapf(err, "add merkle proof %s", txid)
+					}
+				} else {
+					modified = true
+				}
+			}
+
+			if ftx.AddContextID(contextID) {
+				modified = true
+			}
+
+			if modified {
+				if err := ftx.save(ctx, w.store); err != nil {
+					return errors.Wrapf(err, "save %s", txid)
+				}
+			}
+
+			continue
+		}
+
+		// Create new tx
+		fields := []logger.Field{
+			logger.Stringer("txid", txid),
+		}
+		if atx.MerkleProof != nil {
+			fields = append(fields, logger.Stringer("block_hash", atx.MerkleProof.GetBlockHash()))
+		}
+		logger.InfoWithFields(ctx, fields, "Saving expanded tx ancestor")
+
+		ftx = &Tx{
+			ContextIDs: []bitcoin.Hash32{contextID},
+			Tx:         tx,
+		}
+
+		if atx.MerkleProof != nil {
+			if err := ftx.AddMerkleProof(ctx, atx.MerkleProof); err != nil {
+				if errors.Cause(err) != AlreadyHaveMerkleProof {
+					return errors.Wrap(err, "add merkle proof")
+				}
+			}
+		}
+
+		if err := ftx.save(ctx, w.store); err != nil {
+			return errors.Wrapf(err, "save tx %s", txid)
 		}
 	}
 

@@ -258,7 +258,7 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 	return nil
 }
 
-func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage) error {
+func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHeight uint32) error {
 	fmt.Printf("Saving keys\n")
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
@@ -266,6 +266,10 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage) error {
 	}
 
 	parts := ks.split()
+	pruneHeight := uint32(0)
+	if blockHeight > pruneDepth {
+		pruneHeight = blockHeight - pruneDepth
+	}
 	newKeySet := make(KeySet)
 
 	fmt.Printf("%d key parts\n", len(parts))
@@ -280,7 +284,7 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage) error {
 					modified = true
 				}
 
-				if key.UsedHeight > 0 {
+				if key.UsedHeight > 0 && key.UsedHeight < pruneHeight {
 					k, exists := archiveKeys[contextID]
 					if exists {
 						archiveKeys[contextID] = append(k, key)

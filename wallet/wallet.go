@@ -84,12 +84,12 @@ type Wallet struct {
 	outputs     Outputs
 	outputsLock sync.RWMutex
 
+	blockHeight uint32
+
 	config              Config
 	store               storage.StreamStorage
 	merkleProofVerifier MerkleProofVerifier
 	feeQuoter           FeeQuoter
-
-	blockHeight uint32
 
 	lock sync.RWMutex
 }
@@ -104,6 +104,14 @@ func NewWallet(config Config, store storage.StreamStorage,
 		baseKey:             key,
 		keys:                make(KeySet),
 	}
+}
+
+func (w *Wallet) BaseKey() bitcoin.Key {
+	w.lock.RLock()
+	result := w.baseKey
+	w.lock.RUnlock()
+
+	return result
 }
 
 func (w *Wallet) SetBlockHeight(ctx context.Context, blockHeight uint32) error {
@@ -207,6 +215,27 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 		return errors.Wrap(err, "populate")
 	}
 
+	// Mark outputs as reserved
+	w.outputsLock.Lock()
+	outputsModified := false
+	for _, txin := range txb.MsgTx.TxIn {
+		for _, output := range w.outputs {
+			if output.TxID.Equal(&txin.PreviousOutPoint.Hash) &&
+				output.Index == txin.PreviousOutPoint.Index {
+				output.ReservedContextID = &contextID
+				outputsModified = true
+			}
+		}
+	}
+
+	if outputsModified {
+		if err := w.outputs.save(ctx, w.store, w.BlockHeight()); err != nil {
+			w.outputsLock.Unlock()
+			return errors.Wrap(err, "save outputs")
+		}
+	}
+	w.outputsLock.Unlock()
+
 	return nil
 }
 
@@ -237,9 +266,33 @@ func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 		return errors.Wrap(err, "tx builder")
 	}
 
-	if err := txb.SignOnly(keys); err != nil {
+	usedKeys, err := txb.SignOnly(keys)
+	if err != nil {
 		return errors.Wrap(err, "sign")
 	}
+
+	blockHeight := w.BlockHeight()
+	for _, usedKey := range usedKeys {
+		for _, wkey := range wkeys {
+			if !wkey.Key.Equal(usedKey) {
+				continue
+			}
+
+			if wkey.UsedHeight != blockHeight {
+				wkey.UsedHeight = blockHeight
+				wkey.modified = true
+			}
+
+			break
+		}
+	}
+
+	w.keysLock.Lock()
+	if err := w.keys.save(ctx, w.store, blockHeight); err != nil {
+		w.keysLock.Unlock()
+		return errors.Wrap(err, "save keys")
+	}
+	w.keysLock.Unlock()
 
 	return nil
 }
@@ -267,7 +320,7 @@ func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
 	return result, nil
 }
 
-func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Hash32) error {
+func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.MsgTx) error {
 	txid := *tx.TxHash()
 
 	keys, err := w.GetKeys(ctx, contextID)
@@ -280,8 +333,14 @@ func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Ha
 	if err != nil {
 		return errors.Wrap(err, "fetch tx")
 	}
-	if walletTx != nil {
-		return nil // already added tx
+	if walletTx != nil { // already added tx
+		if walletTx.AddContextID(contextID) {
+			if err := walletTx.save(ctx, w.store); err != nil {
+				return errors.Wrapf(err, "save %s", txid)
+			}
+		}
+
+		return nil
 	}
 
 	// Check for spent outputs.
@@ -341,46 +400,65 @@ func (w *Wallet) AddTx(ctx context.Context, tx *wire.MsgTx, contextID bitcoin.Ha
 
 	w.outputsLock.Unlock()
 
+	w.keysLock.Lock()
+
+	if err := w.keys.save(ctx, w.store, w.blockHeight); err != nil {
+		w.keysLock.Unlock()
+		return errors.Wrap(err, "save keys")
+	}
+
+	w.keysLock.Unlock()
+
 	walletTx = &Tx{
-		Tx: tx,
+		ContextIDs: []bitcoin.Hash32{contextID},
+		Tx:         tx,
 	}
 	if err := walletTx.save(ctx, w.store); err != nil {
 		return errors.Wrap(err, "save tx")
 	}
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("txid", tx.TxHash()),
+	}, "Added tx")
 
 	return nil
 }
 
-func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) error {
+// AddMerkleProof verifies the merkle proof and adds it to the tx if it doesn't have it already.
+// It returns the context ids associated with the corresponding tx.
+func (w *Wallet) AddMerkleProof(ctx context.Context,
+	merkleProof *merkle_proof.MerkleProof) ([]bitcoin.Hash32, error) {
+
 	txid := merkleProof.GetTxID()
 	if txid == nil {
-		return errors.New("No txid in merkle proof")
+		return nil, errors.New("No txid in merkle proof")
 	}
 
-	w.lock.Lock()
-	defer w.lock.Unlock()
+	if _, _, err := w.merkleProofVerifier.VerifyMerkleProof(ctx, merkleProof); err != nil {
+		return nil, errors.Wrap(err, "verify")
+	}
 
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, *txid)
 	if err != nil {
-		return errors.Wrap(err, "fetch tx")
+		return nil, errors.Wrap(err, "fetch tx")
 	}
 	if walletTx == nil {
-		return errors.Wrap(ErrUnknownTx, txid.String())
+		return nil, errors.Wrap(ErrUnknownTx, txid.String())
 	}
 
 	if err := walletTx.AddMerkleProof(ctx, merkleProof); err != nil {
 		if errors.Cause(err) == AlreadyHaveMerkleProof {
-			return nil
+			return nil, nil
 		}
-		return errors.Wrap(err, "add merkle proof")
+		return nil, errors.Wrap(err, "add merkle proof")
 	}
 
 	if err := walletTx.save(ctx, w.store); err != nil {
-		return errors.Wrap(err, "save tx")
+		return nil, errors.Wrap(err, "save tx")
 	}
 
-	return nil
+	return walletTx.ContextIDs, nil
 }
 
 func (w *Wallet) MarkTxSafe(ctx context.Context, txid bitcoin.Hash32) error {
@@ -404,6 +482,10 @@ func (w *Wallet) MarkTxSafe(ctx context.Context, txid bitcoin.Hash32) error {
 	if err := walletTx.save(ctx, w.store); err != nil {
 		return errors.Wrap(err, "save tx")
 	}
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("txid", txid),
+	}, "Marked tx as safe")
 
 	if err := w.markOutputs(ctx, txid, TxStateSafe); err != nil {
 		return errors.Wrap(err, "utxos")
@@ -434,6 +516,10 @@ func (w *Wallet) MarkTxUnsafe(ctx context.Context, txid bitcoin.Hash32) error {
 		return errors.Wrap(err, "save tx")
 	}
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("txid", txid),
+	}, "Marked tx as unsafe")
+
 	if err := w.markOutputs(ctx, txid, TxStateUnsafe); err != nil {
 		return errors.Wrap(err, "utxos")
 	}
@@ -463,6 +549,10 @@ func (w *Wallet) MarkTxCancelled(ctx context.Context, txid bitcoin.Hash32) error
 		return errors.Wrap(err, "save tx")
 	}
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("txid", txid),
+	}, "Marked tx as cancelled")
+
 	if err := w.markOutputs(ctx, txid, TxStateCancelled); err != nil {
 		return errors.Wrap(err, "utxos")
 	}
@@ -480,6 +570,11 @@ func (w *Wallet) markOutputs(ctx context.Context, txid bitcoin.Hash32, state TxS
 			output.State = state
 			output.modified = true
 			updated = true
+
+			logger.InfoWithFields(ctx, []logger.Field{
+				logger.Stringer("txid", txid),
+				logger.Uint32("index", output.Index),
+			}, "Marked output as %s", state)
 		}
 	}
 
@@ -490,14 +585,6 @@ func (w *Wallet) markOutputs(ctx context.Context, txid bitcoin.Hash32, state TxS
 	}
 
 	return nil
-}
-
-func (w *Wallet) BaseKey() bitcoin.Key {
-	w.lock.RLock()
-	result := w.baseKey
-	w.lock.RUnlock()
-
-	return result
 }
 
 func (w *Wallet) Load(ctx context.Context) error {
@@ -532,15 +619,17 @@ func (w *Wallet) Save(ctx context.Context) error {
 		return errors.Wrap(err, "write")
 	}
 
+	blockHeight := w.BlockHeight()
+
 	w.outputsLock.RLock()
-	if err := w.outputs.save(ctx, w.store, w.BlockHeight()); err != nil {
+	if err := w.outputs.save(ctx, w.store, blockHeight); err != nil {
 		w.outputsLock.RUnlock()
 		return errors.Wrap(err, "outputs")
 	}
 	w.outputsLock.RUnlock()
 
 	w.keysLock.RLock()
-	if err := w.keys.save(ctx, w.store); err != nil {
+	if err := w.keys.save(ctx, w.store, blockHeight); err != nil {
 		w.keysLock.RUnlock()
 		return errors.Wrap(err, "keys")
 	}

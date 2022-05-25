@@ -85,6 +85,20 @@ func (c *Client) Channel(index int) *Channel {
 	return c.channels[index]
 }
 
+func (c *Client) GetChannelByHash(channelHash bitcoin.Hash32) (*Channel, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	for _, channel := range c.channels {
+		hash := channel.Hash()
+		if hash.Equal(&channelHash) {
+			return channel, nil
+		}
+	}
+
+	return nil, nil
+}
+
 func (c *Client) GetChannel(channelID string) (*Channel, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()

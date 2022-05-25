@@ -66,11 +66,11 @@ func MockReceiveTx(ctx context.Context, wallet *Wallet, contextID bitcoin.Hash32
 
 	proofs := verifier.MockMerkleProofs(*tx.TxHash())
 
-	if err := wallet.AddTx(ctx, tx, contextID); err != nil {
+	if err := wallet.AddTx(ctx, contextID, tx); err != nil {
 		panic(fmt.Sprintf("Failed to add input tx : %s", err))
 	}
 
-	if err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
+	if _, err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
 		panic(fmt.Sprintf("Failed to add input merkle proof : %s", err))
 	}
 
@@ -148,11 +148,11 @@ func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin
 
 			etx.Tx.AddTxIn(wire.NewTxIn(wire.NewOutPoint(inputTx.TxHash(), 0), nil))
 
-			if err := wallet.AddTx(ctx, inputTx, contextID); err != nil {
+			if err := wallet.AddTx(ctx, contextID, inputTx); err != nil {
 				panic(fmt.Sprintf("Failed to add input tx : %s", err))
 			}
 
-			if err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
+			if _, err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
 				panic(fmt.Sprintf("Failed to add input merkle proof : %s", err))
 			}
 
@@ -175,7 +175,7 @@ func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin
 			etx.Tx.TxIn[i].UnlockingScript = unlockingScript
 		}
 
-		if err := wallet.AddTx(ctx, etx.Tx, contextID); err != nil {
+		if err := wallet.AddTx(ctx, contextID, etx.Tx); err != nil {
 			panic(fmt.Sprintf("Failed to add tx : %s", err))
 		}
 

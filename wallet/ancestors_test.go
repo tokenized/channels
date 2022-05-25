@@ -26,7 +26,7 @@ func Test_PopulateExpandedTx_TwoLevels(t *testing.T) {
 
 	t.Logf("Expanded Tx : %s", etx.String())
 
-	if err := receiverWallet.VerifyExpandedTx(ctx, etx); err != nil {
+	if err := receiverWallet.VerifyExpandedTx(ctx, contextID, etx); err != nil {
 		t.Fatalf("Failed to verify expanded tx : %s", err)
 	}
 }
@@ -58,7 +58,7 @@ func Test_PopulateExpandedTx_DuplicateAncestor(t *testing.T) {
 		t.Errorf("Wrong ancestor count : got %d, want %d", len(etx.Ancestors), 1)
 	}
 
-	if err := receiverWallet.VerifyExpandedTx(ctx, etx); err != nil {
+	if err := receiverWallet.VerifyExpandedTx(ctx, contextID, etx); err != nil {
 		t.Fatalf("Failed to verify expanded tx : %s", err)
 	}
 }
