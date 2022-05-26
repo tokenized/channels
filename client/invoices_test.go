@@ -56,7 +56,7 @@ func Test_Invoice(t *testing.T) {
 	invoice := &channels.Invoice{
 		Items: channels.InvoiceItems{
 			{
-				ItemID: []byte("Service A"),
+				ID: []byte("Service A"),
 				Price: channels.Price{
 					Quantity: &fiftyK,
 				},
@@ -95,7 +95,7 @@ func Test_Invoice(t *testing.T) {
 	t.Logf("Invoice tx : %s", tx.String())
 
 	invoiceTx := &channels.InvoiceTx{
-		Tx: channels.ExpandedTx{
+		Tx: &channels.ExpandedTx{
 			Tx: tx,
 		},
 		Fees: merchant_api.FeeQuotes{
@@ -181,7 +181,7 @@ func Test_Invoice(t *testing.T) {
 	fakeMerkleProof := MockMerkleProof(previousTx)
 
 	payment := &channels.InvoicePayment{
-		Tx: channels.ExpandedTx{
+		Tx: &channels.ExpandedTx{
 			Tx: txb.MsgTx,
 			Ancestors: channels.AncestorTxs{
 				{

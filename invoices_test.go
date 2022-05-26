@@ -140,8 +140,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 	data := &Invoice{
 		Items: InvoiceItems{
 			{
-				ItemID:          item1ID[:],
-				ItemDescription: "Item 1",
+				ID: item1ID[:],
 				Price: Price{
 					Token: TokenID{
 						Protocol: bitcoinProtocol,
@@ -169,7 +168,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 	t.Logf("Tx (%d bytes) : %s", tx.SerializeSize(), tx)
 
 	msg := &InvoiceTx{
-		Tx: ExpandedTx{
+		Tx: &ExpandedTx{
 			Tx: tx,
 		},
 	}

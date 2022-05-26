@@ -29,6 +29,9 @@ const (
 	// InvoicesRejectCodeTxNotAccepted is a code specific to the invoices protocol that is placed
 	// in a Reject message to signify that a Bitcoin transaction was not accepted by the network.
 	InvoicesRejectCodeTxNotAccepted = uint32(1)
+	InvoicesRejectCodeInvalidOrder  = uint32(2)
+	InvoicesRejectCodeUnknownItem   = uint32(3)
+	InvoicesRejectCodeWrongPrice    = uint32(4)
 )
 
 var (
@@ -189,7 +192,7 @@ func (m *Invoice) Write() (envelope.Data, error) {
 // InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
 // payments for the items contained in the invoice.
 type InvoiceTx struct {
-	Tx   ExpandedTx             `bsor:"1" json:"tx"`
+	Tx   *ExpandedTx            `bsor:"1" json:"tx"`
 	Fees merchant_api.FeeQuotes `bsor:"2" json:"fees"` // tx fee requirements
 }
 
@@ -216,7 +219,7 @@ func (m *InvoiceTx) Write() (envelope.Data, error) {
 
 // InvoicePayment is a payment transaction that embeds the approved invoice.
 type InvoicePayment struct {
-	Tx ExpandedTx `bsor:"1" json:"tx"`
+	Tx *ExpandedTx `bsor:"1" json:"tx"`
 }
 
 func (*InvoicePayment) ProtocolID() envelope.ProtocolID {
@@ -302,7 +305,37 @@ type Items []*Item
 type Price struct {
 	Token    TokenID  `bsor:"1" json:"token"` // Token to pay with
 	Quantity *uint64  `bsor:"2" json:"quantity,omitempty"`
-	Amount   *float64 `bsor:"3" json:"amount,omitempty"`
+	Amount   *Decimal `bsor:"3" json:"amount,omitempty"`
+}
+
+func (p Price) Equal(other Price) bool {
+	if !p.Token.Equal(other.Token) {
+		return false
+	}
+
+	if (p.Quantity == nil && other.Quantity != nil) ||
+		(p.Quantity != nil && other.Quantity == nil) {
+		return false
+	}
+
+	if p.Quantity != nil {
+		if *p.Quantity != *other.Quantity {
+			return false
+		}
+	}
+
+	if (p.Amount == nil && other.Amount != nil) ||
+		(p.Amount != nil && other.Amount == nil) {
+		return false
+	}
+
+	if p.Amount != nil {
+		if !p.Amount.Equal(*other.Amount) {
+			return false
+		}
+	}
+
+	return true
 }
 
 type Prices []*Price
@@ -318,12 +351,29 @@ type TokenID struct {
 	ID       bitcoin.Hex `bsor:"2" json:"id,omitempty"`
 }
 
+func (id TokenID) IsBitcoin() bool {
+	return len(id.Protocol) == 0
+}
+
+func (id TokenID) Equal(other TokenID) bool {
+	if !bytes.Equal(id.Protocol, other.Protocol) {
+		return false
+	}
+
+	if !bytes.Equal(id.ID, other.ID) {
+		return false
+	}
+
+	return true
+}
+
+// InvoiceItem specifies an item that is being purchased. Either quantity or amount is specified but
+// not both. Neither are required, for example when it is a service that is being purchased.
 type InvoiceItem struct {
-	ItemID          bitcoin.Hex `bsor:"1" json:"id"` // Unique identifier for the item
-	ItemDescription string      `bsor:"2" json:"item_description"`
-	Price           Price       `bsor:"3" json:"price"` // specified payment option
-	Quantity        *uint64     `bsor:"4" json:"quantity,omitempty"`
-	Amount          *float64    `bsor:"5" json:"amount,omitempty"`
+	ID       bitcoin.Hex `bsor:"1" json:"id"`    // Unique identifier for the item
+	Price    Price       `bsor:"2" json:"price"` // specified payment option
+	Quantity *uint64     `bsor:"3" json:"quantity,omitempty"`
+	Amount   *Decimal    `bsor:"4" json:"amount,omitempty"`
 }
 
 type InvoiceItems []*InvoiceItem
@@ -523,6 +573,12 @@ func InvoicesRejectCodeToString(code uint32) string {
 	switch code {
 	case InvoicesRejectCodeTxNotAccepted:
 		return "tx_not_accepted"
+	case InvoicesRejectCodeInvalidOrder:
+		return "invalid_order"
+	case InvoicesRejectCodeUnknownItem:
+		return "unknown_item"
+	case InvoicesRejectCodeWrongPrice:
+		return "wrong_price"
 	default:
 		return "parse_error"
 	}

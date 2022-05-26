@@ -165,7 +165,8 @@ func (c *CommunicationChannel) newMessageWithPayload(ctx context.Context,
 
 	logger.InfoWithFields(ctx, []logger.Field{
 		logger.Uint64("message_id", msg.ID()),
-	}, "New message")
+		logger.Int("bytes", len(payload)),
+	}, "New message with payload")
 	return msg, nil
 }
 
