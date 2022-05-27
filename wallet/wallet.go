@@ -39,16 +39,6 @@ var (
 	ErrContextNotFound    = errors.New("Context Not Found")
 	ErrWrongKey           = errors.New("Wrong Key")
 
-	// MissingAncestor means ancestors don't go all the way to merkle proofs. This can reduce the
-	// security of the ancestry, but may not always be a failure. It prevents knowing the
-	// "unconfirmed depth" of the new tx, but doesn't mean it is invalid.
-	MissingMerkleProofAncestors = errors.New("Missing Merkle Proof Ancestor")
-
-	// MissingInput means that an ancestor spent by the main tx is missing. This doesn't
-	// necessarily make it invalid, but is more serious than ErrMissingAncestor as many uses require
-	// at least the immediate parents of the tx. For example fee calculation and script validation.
-	MissingInput = errors.New("Missing Input")
-
 	AlreadyHaveMerkleProof = errors.New("Already Have Merkle Proof")
 
 	endian = binary.LittleEndian
@@ -136,6 +126,12 @@ func (w *Wallet) BlockHeight() uint32 {
 	defer w.lock.RUnlock()
 
 	return w.blockHeight
+}
+
+func (w *Wallet) SetMerkleProofVerifier(m MerkleProofVerifier) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	w.merkleProofVerifier = m
 }
 
 // CreateBitcoinReceive creates a transaction receiving the specified amount of bitcoin.

@@ -8,7 +8,6 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
-	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -32,6 +31,23 @@ const (
 	InvoicesRejectCodeInvalidOrder  = uint32(2)
 	InvoicesRejectCodeUnknownItem   = uint32(3)
 	InvoicesRejectCodeWrongPrice    = uint32(4)
+
+	// InvoicesRejectCodeTxNotValid means the transaction or its ancestors did not validate. There
+	// could be an invalid signature or parse error in the tx, or one of its ancestors.
+	InvoicesRejectCodeTxNotValid = uint32(5)
+
+	// InvoicesRejectCodeTxFeeTooLow means the tx does not pay the fee requirement defined in the
+	// previously provided fee quote.
+	InvoicesRejectCodeTxFeeTooLow = uint32(6)
+
+	// InvoicesRejectCodeTxMissingAncestor means the `InvoicesRequirementAncestorsToMerkleProofs`
+	// requirement was not met. Ancestors were not provided all the way to merkle proofs.
+	InvoicesRejectCodeTxMissingAncestor = uint32(7)
+
+	// InvoicesRejectCodeTxMissingInput means the ancestors do not meet the
+	// InvoicesRequirementInputs requirement. Not all outputs being spent by the tx are included in
+	// the ancestors.
+	InvoicesRejectCodeTxMissingInput = uint32(8)
 )
 
 var (
@@ -204,8 +220,8 @@ func (m *Invoice) Write() (envelope.Data, error) {
 // InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
 // payments for the items contained in the invoice.
 type InvoiceTx struct {
-	Tx   *ExpandedTx            `bsor:"1" json:"tx"`
-	Fees merchant_api.FeeQuotes `bsor:"2" json:"fees"` // tx fee requirements
+	Tx   *ExpandedTx     `bsor:"1" json:"tx"`
+	Fees FeeRequirements `bsor:"2" json:"fees"` // tx fee requirements
 }
 
 func (*InvoiceTx) ProtocolID() envelope.ProtocolID {
@@ -279,24 +295,6 @@ func (m *InvoicePaymentAccept) Write() (envelope.Data, error) {
 	payload = append(payload, msgScriptItems...)
 
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
-}
-
-// ExpandedTx is a Bitcoin transaction with ancestor information.
-// All ancestor transactions back to merkle proofs should be provided.
-type ExpandedTx struct {
-	Tx        *wire.MsgTx `bsor:"1" json:"tx"`                  // marshals as raw bytes
-	Ancestors AncestorTxs `bsor:"2" json:"ancestors,omitempty"` // ancestor history of outputs up to merkle proofs
-}
-
-func (etx ExpandedTx) String() string {
-	result := &bytes.Buffer{}
-	if etx.Tx != nil {
-		result.Write([]byte(fmt.Sprintf("%s\n", etx.Tx.String())))
-	}
-
-	result.Write([]byte(etx.Ancestors.String()))
-
-	return string(result.Bytes())
 }
 
 // Item is something that can be included in an invoice. Commonly a product or service.
@@ -591,6 +589,14 @@ func InvoicesRejectCodeToString(code uint32) string {
 		return "unknown_item"
 	case InvoicesRejectCodeWrongPrice:
 		return "wrong_price"
+	case InvoicesRejectCodeTxNotValid:
+		return "tx_not_valid"
+	case InvoicesRejectCodeTxFeeTooLow:
+		return "tx_fee_too_low"
+	case InvoicesRejectCodeTxMissingAncestor:
+		return "tx_missing_ancestor"
+	case InvoicesRejectCodeTxMissingInput:
+		return "tx_missing_input"
 	default:
 		return "parse_error"
 	}

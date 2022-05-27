@@ -8,10 +8,15 @@ import (
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/merchant_api"
+	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/txbuilder"
 	"github.com/tokenized/pkg/wire"
 )
+
+type MerkleProofMocker interface {
+	MockMerkleProofs(ctx context.Context, txids ...bitcoin.Hash32) []*merkle_proof.MerkleProof
+}
 
 func MockWallet() (*Wallet, *MockMerkleProofVerifier, *MockFeeQuoter) {
 	config := Config{
@@ -79,12 +84,12 @@ func MockReceiveTxWithProof(ctx context.Context, wallet *Wallet, contextID bitco
 		tx.AddTxOut(wire.NewTxOut(value, keys[i].LockingScript))
 	}
 
-	verifier, ok := wallet.merkleProofVerifier.(*MockMerkleProofVerifier)
+	mocker, ok := wallet.merkleProofVerifier.(MerkleProofMocker)
 	if !ok {
-		panic("Wallet does not have mock merkle proof verifier")
+		panic("Wallet does not have mock merkle proof mocker")
 	}
 
-	proofs := verifier.MockMerkleProofs(*tx.TxHash())
+	proofs := mocker.MockMerkleProofs(ctx, *tx.TxHash())
 
 	if err := wallet.AddTx(ctx, contextID, tx); err != nil {
 		panic(fmt.Sprintf("Failed to add input tx : %s", err))
@@ -159,12 +164,12 @@ func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin
 				inputTx.AddTxOut(wire.NewTxOut(amount-remainingAmount, changeLockingScript))
 			}
 
-			verifier, ok := wallet.merkleProofVerifier.(*MockMerkleProofVerifier)
+			mocker, ok := wallet.merkleProofVerifier.(MerkleProofMocker)
 			if !ok {
-				panic("Wallet does not have mock merkle proof verifier")
+				panic("Wallet does not have merkle proof mocker")
 			}
 
-			proofs := verifier.MockMerkleProofs(*inputTx.TxHash())
+			proofs := mocker.MockMerkleProofs(ctx, *inputTx.TxHash())
 
 			etx.Tx.AddTxIn(wire.NewTxIn(wire.NewOutPoint(inputTx.TxHash(), 0), nil))
 

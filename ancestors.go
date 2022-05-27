@@ -9,6 +9,20 @@ import (
 	"github.com/tokenized/pkg/json_envelope"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/wire"
+
+	"github.com/pkg/errors"
+)
+
+var (
+	// MissingAncestor means ancestors don't go all the way to merkle proofs. This can reduce the
+	// security of the ancestry, but may not always be a failure. It prevents knowing the
+	// "unconfirmed depth" of the new tx, but doesn't mean it is invalid.
+	MissingMerkleProofAncestors = errors.New("Missing Merkle Proof Ancestor")
+
+	// MissingInput means that an ancestor spent by the main tx is missing. This doesn't
+	// necessarily make it invalid, but is more serious than ErrMissingAncestor as many uses require
+	// at least the immediate parents of the tx. For example fee calculation and script validation.
+	MissingInput = errors.New("Missing Input")
 )
 
 // AncestorTx is a tx containing a spent output contained in an expanded tx or an ancestor. If it is

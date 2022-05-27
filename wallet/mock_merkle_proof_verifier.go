@@ -39,7 +39,9 @@ func NewMockMerkleProofVerifier() *MockMerkleProofVerifier {
 // MockMerkleProofs creates a mock header that contains a merkle root that corresponds to a valid
 // merkle proof for a specific txid. The header is retained so a later call the VerifyMerkleProof
 // will be able to validate it.
-func (m *MockMerkleProofVerifier) MockMerkleProofs(txids ...bitcoin.Hash32) []*merkle_proof.MerkleProof {
+func (m *MockMerkleProofVerifier) MockMerkleProofs(ctx context.Context,
+	txids ...bitcoin.Hash32) []*merkle_proof.MerkleProof {
+
 	header := &wire.BlockHeader{
 		Timestamp: uint32(m.currentTime.Unix()),
 		Bits:      0x1d00ffff,
@@ -88,8 +90,7 @@ func (m *MockMerkleProofVerifier) MockMerkleProofs(txids ...bitcoin.Hash32) []*m
 
 	for i, proof := range proofs {
 		proof.TxID = &txids[i]
-		proof.BlockHash = &bitcoin.Hash32{}
-		copy(proof.BlockHash[:], blockHash[:])
+		proof.BlockHeader = header
 	}
 
 	m.lock.Lock()

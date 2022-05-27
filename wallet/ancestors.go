@@ -10,6 +10,62 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	minimumFeeOverpaid = uint64(500)
+)
+
+var (
+	// InsufficientFee means the tx doesn't pay enough fee.
+	InsufficientFee = errors.New("Insufficient Fee")
+
+	// FeeOverpaid means the fee is well over the required fee and is probably a fee calculation
+	// error.
+	FeeOverpaid = errors.New("Fee Overpaid")
+)
+
+// VerifyFeeQuote verifies that the tx meets the current fee quote.
+// Note: If VerifyExpandedTx returned `MissingInput` then this function will fail as the input
+// values are not available.
+func (w *Wallet) VerifyFeeQuote(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx) error {
+
+	fee, err := etx.CalculateFee()
+	if err != nil {
+		return errors.Wrap(err, "fee")
+	}
+
+	// TODO Retain invoice tx with fee quote. --ce
+	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
+	if err != nil {
+		return errors.Wrap(err, "fee quotes")
+	}
+	feeRequirements := channels.ConvertToFeeRequirements(feeQuotes)
+
+	feeByteCounts := channels.TxFeeByteCounts(etx.Tx)
+	if err != nil {
+		return errors.Wrap(err, "fee byte counts")
+	}
+	requiredFee := feeRequirements.RequiredFee(feeByteCounts)
+
+	if fee < (requiredFee*100)/98 { // less than 98% of required fee
+		return errors.Wrapf(InsufficientFee, "%d < %d", fee, requiredFee)
+	}
+
+	standardRequirement := feeRequirements.GetStandardRequirement()
+	standardRequiredFee := (uint64(etx.Tx.SerializeSize()) * standardRequirement.Satoshis) /
+		standardRequirement.Bytes
+	if standardRequiredFee < minimumFeeOverpaid {
+		standardRequiredFee = minimumFeeOverpaid
+	}
+
+	// Detect if fee is way higher and probably in error.
+	if fee > 5*standardRequiredFee {
+		return errors.Wrapf(FeeOverpaid, "%d > %d", fee, requiredFee)
+	}
+
+	return nil
+}
+
 // PopulateExpandedTx adds any ancestors that are needed for the tx. This should be called after
 // funding the tx. It returns the depth of ancestry provided. It can also return MissingInputs or
 // MissingMerkleProofAncestors which don't mean failure, but notify that full ancestry back to
@@ -25,7 +81,7 @@ func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *channels.ExpandedT
 
 		depth, err := w.addAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, 0)
 		if err != nil {
-			if errors.Cause(err) != MissingMerkleProofAncestors {
+			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 			}
 
@@ -42,11 +98,11 @@ func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *channels.ExpandedT
 	}
 
 	if missingInputs {
-		return highestDepth, MissingInput
+		return highestDepth, channels.MissingInput
 	}
 
 	if missingMerkleProofAncestors {
-		return highestDepth, MissingMerkleProofAncestors
+		return highestDepth, channels.MissingMerkleProofAncestors
 	}
 
 	return highestDepth, nil
@@ -60,7 +116,7 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 		return 0, errors.Wrap(err, "fetch tx")
 	}
 	if tx == nil {
-		return depth, MissingMerkleProofAncestors
+		return depth, channels.MissingMerkleProofAncestors
 	}
 
 	ancestor := &channels.AncestorTx{}
@@ -88,7 +144,7 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 
 		parentDepth, err := w.addAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, depth+1)
 		if err != nil {
-			if errors.Cause(err) != MissingMerkleProofAncestors {
+			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 			}
 			missingMerkleProofAncestors = true
@@ -100,7 +156,7 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 	}
 
 	if missingMerkleProofAncestors {
-		return highestDepth, MissingMerkleProofAncestors
+		return highestDepth, channels.MissingMerkleProofAncestors
 	}
 
 	return highestDepth, nil
@@ -120,7 +176,7 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 		depth, err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, 0,
 			&verified)
 		if err != nil {
-			if errors.Cause(err) != MissingMerkleProofAncestors {
+			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 			}
 
@@ -202,11 +258,11 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 	}
 
 	if missingInputs {
-		return highestDepth, MissingInput
+		return highestDepth, channels.MissingInput
 	}
 
 	if missingMerkleProofAncestors {
-		return highestDepth, MissingMerkleProofAncestors
+		return highestDepth, channels.MissingMerkleProofAncestors
 	}
 
 	return highestDepth, nil
@@ -221,7 +277,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 
 	atx := etx.Ancestors.GetTx(txid)
 	if atx == nil {
-		return depth, errors.Wrap(MissingMerkleProofAncestors, txid.String())
+		return depth, errors.Wrap(channels.MissingMerkleProofAncestors, txid.String())
 	}
 
 	if atx.MerkleProof != nil {
@@ -240,7 +296,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 
 	tx := atx.GetTx()
 	if tx == nil {
-		return depth, errors.Wrap(MissingMerkleProofAncestors, txid.String())
+		return depth, errors.Wrap(channels.MissingMerkleProofAncestors, txid.String())
 	}
 
 	highestDepth := uint(0)
@@ -249,7 +305,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 		parentDepth, err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, depth+1,
 			verified)
 		if err != nil {
-			if errors.Cause(err) != MissingMerkleProofAncestors {
+			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txid.String())
 			}
 			missingMerkleProofAncestors = true
@@ -263,7 +319,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 	(*verified)[txid] = true
 
 	if missingMerkleProofAncestors {
-		return highestDepth, MissingMerkleProofAncestors
+		return highestDepth, channels.MissingMerkleProofAncestors
 	}
 	return highestDepth, nil
 }
