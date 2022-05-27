@@ -30,6 +30,19 @@ var (
 type PeerChannelsMessageType uint8
 type PeerChannelType uint8
 
+// CalculatePeerChannelsAccount calculates the account id and token that will be used by the peer
+// channel service based on the public key with which the relationship is initiated. This allows a
+// user with no peer channels service to initiate a relationship and have a peer channel to pay the
+// initial invoice. It also allows authorization of actions on the account via the signatures in the
+// Channels messages.
+func CalculatePeerChannelsAccount(publicKey bitcoin.PublicKey) (uuid.UUID, uuid.UUID) {
+	var accountID, token uuid.UUID
+	publicKeyHash := bitcoin.Hash160(publicKey.Bytes())
+	copy(accountID[:], publicKeyHash)
+	copy(token[:], publicKey.Bytes())
+	return accountID, token
+}
+
 type CreateChannel struct {
 	Type PeerChannelType `bsor:"1" json:"type"`
 }

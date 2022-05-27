@@ -49,8 +49,8 @@ func (w *Wallet) GetKeys(ctx context.Context, contextID bitcoin.Hash32) (Keys, e
 }
 
 func (w *Wallet) GetKeyForHash(hash bitcoin.Hash32) *Key {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
+	w.keysLock.RLock()
+	defer w.keysLock.RUnlock()
 
 	for _, keys := range w.keys {
 		for _, key := range keys {
@@ -64,8 +64,8 @@ func (w *Wallet) GetKeyForHash(hash bitcoin.Hash32) *Key {
 }
 
 func (w *Wallet) GetKeyForLockingScript(script bitcoin.Script) *Key {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
+	w.keysLock.RLock()
+	defer w.keysLock.RUnlock()
 
 	for _, keys := range w.keys {
 		for _, key := range keys {
@@ -80,9 +80,7 @@ func (w *Wallet) GetKeyForLockingScript(script bitcoin.Script) *Key {
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.
 func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
-	w.lock.RLock()
-	baseKey := w.baseKey
-	w.lock.RUnlock()
+	baseKey := w.BaseKey()
 
 	hash, key := GenerateHashKey(baseKey, contextID)
 
@@ -112,9 +110,7 @@ func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.
 func (w *Wallet) GenerateKeys(contextID bitcoin.Hash32, count int) (Keys, error) {
-	w.lock.RLock()
-	baseKey := w.baseKey
-	w.lock.RUnlock()
+	baseKey := w.BaseKey()
 
 	hash := GenerateHash(contextID)
 

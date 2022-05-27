@@ -31,25 +31,38 @@ var (
 type RelationshipsMessageType uint8
 
 type Entity struct {
-	// PublicKey is the base public key for a relationship. Signature keys will be derived from it.
+	// PublicKey is the base public key for a relationship. Channel message signing keys will be
+	// derived from it.
 	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key"`
 
 	// PeerChannels for relationship to send messages to.
-	PeerChannels PeerChannels `bsor:"2" json:"peer_channel,omitempty"`
+	PeerChannels PeerChannels `bsor:"2" json:"peer_channels,omitempty"`
+
+	// AlternatePublicKey is a base public key for a relationship's alternate peer channels.
+	// Channel message signing keys will be derived from it.
+	AlternatePublicKey *bitcoin.PublicKey `bsor:"3" json:"alternate_public_key,omitempty"`
+
+	// AlternatePeerChannels are alternate channels that can be used for service related
+	// communication. For example, an agent administrator can establish a relationship with
+	// alternate peer channels and public key then configure the agent to use the alternate
+	// channels and public key. The invoices to pay for the service will be sent to the primary peer
+	// channels, so the administrator can pay them, but the service can use the alternate channels
+	// to access the service.
+	AlternatePeerChannels PeerChannels `bsor:"4" json:"alternate_peer_channels,omitempty"`
 
 	// SupportedProtocols specifies the Envelope protocol IDs that can be interpreted by this
 	// channel. If an unsuported protocol ID is used then this channel will respond with an
 	// `UnsupportedProtocol` message.
-	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
+	SupportedProtocols envelope.ProtocolIDs `bsor:"5" json:"supported_protocols"`
 
 	// ProtocolRequirements allows specifying optional protocol specific requirements. Some
 	// protocols may allow the implementation to enforce certain requirements or not. For example,
 	// with the Invoices protocol, regarding ancestors, not all recipients will need to require
 	// full ancestry to verify a tx. So if full ancestry or just direct parents are required then
 	// that can be specified.
-	ProtocolRequirements ProtocolRequirements `bsor:"4" json:"protocol_requirements"`
+	ProtocolRequirements ProtocolRequirements `bsor:"6" json:"protocol_requirements"`
 
-	Identity Identity `bsor:"5" json:"identity"`
+	Identity Identity `bsor:"7" json:"identity"`
 }
 
 type ProtocolRequirement struct {

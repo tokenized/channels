@@ -77,6 +77,8 @@ type FeeQuoter interface {
 type Wallet struct {
 	baseKey bitcoin.Key
 
+	txLock sync.Mutex
+
 	keys     KeySet
 	keysLock sync.RWMutex
 
@@ -338,6 +340,9 @@ func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.M
 		return errors.Wrap(err, "keys")
 	}
 
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
+
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, txid)
 	if err != nil {
@@ -403,7 +408,7 @@ func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.M
 		}
 	}
 
-	if err := w.outputs.save(ctx, w.store, w.blockHeight); err != nil {
+	if err := w.outputs.save(ctx, w.store, w.BlockHeight()); err != nil {
 		w.outputsLock.Unlock()
 		return errors.Wrap(err, "save outputs")
 	}
@@ -412,7 +417,7 @@ func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.M
 
 	w.keysLock.Lock()
 
-	if err := w.keys.save(ctx, w.store, w.blockHeight); err != nil {
+	if err := w.keys.save(ctx, w.store, w.BlockHeight()); err != nil {
 		w.keysLock.Unlock()
 		return errors.Wrap(err, "save keys")
 	}
@@ -448,6 +453,9 @@ func (w *Wallet) AddMerkleProof(ctx context.Context,
 		return nil, errors.Wrap(err, "verify")
 	}
 
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
+
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, *txid)
 	if err != nil {
@@ -472,8 +480,8 @@ func (w *Wallet) AddMerkleProof(ctx context.Context,
 }
 
 func (w *Wallet) MarkTxSafe(ctx context.Context, txid bitcoin.Hash32) error {
-	w.lock.Lock()
-	defer w.lock.Unlock()
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
 
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, txid)
@@ -505,8 +513,8 @@ func (w *Wallet) MarkTxSafe(ctx context.Context, txid bitcoin.Hash32) error {
 }
 
 func (w *Wallet) MarkTxUnsafe(ctx context.Context, txid bitcoin.Hash32) error {
-	w.lock.Lock()
-	defer w.lock.Unlock()
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
 
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, txid)
@@ -538,8 +546,8 @@ func (w *Wallet) MarkTxUnsafe(ctx context.Context, txid bitcoin.Hash32) error {
 }
 
 func (w *Wallet) MarkTxCancelled(ctx context.Context, txid bitcoin.Hash32) error {
-	w.lock.Lock()
-	defer w.lock.Unlock()
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
 
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, txid)
@@ -584,6 +592,7 @@ func (w *Wallet) markOutputs(ctx context.Context, txid bitcoin.Hash32, state TxS
 			logger.InfoWithFields(ctx, []logger.Field{
 				logger.Stringer("txid", txid),
 				logger.Uint32("index", output.Index),
+				logger.Uint64("value", output.Value),
 			}, "Marked output as %s", state)
 		}
 	}
