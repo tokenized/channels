@@ -35,10 +35,19 @@ var (
 	ErrMissingBlockHash   = errors.New("Missing Block Hash")
 	ErrContextIDNotFound  = errors.New("Context ID Not Found")
 	ErrUnknownHeader      = errors.New("Unkown Header")
-	ErrMissingAncestor    = errors.New("Missing Ancestor")
 	ErrNotMostPOW         = errors.New("Not Most POW")
 	ErrContextNotFound    = errors.New("Context Not Found")
 	ErrWrongKey           = errors.New("Wrong Key")
+
+	// MissingAncestor means ancestors don't go all the way to merkle proofs. This can reduce the
+	// security of the ancestry, but may not always be a failure. It prevents knowing the
+	// "unconfirmed depth" of the new tx, but doesn't mean it is invalid.
+	MissingMerkleProofAncestors = errors.New("Missing Merkle Proof Ancestor")
+
+	// MissingInput means that an ancestor spent by the main tx is missing. This doesn't
+	// necessarily make it invalid, but is more serious than ErrMissingAncestor as many uses require
+	// at least the immediate parents of the tx. For example fee calculation and script validation.
+	MissingInput = errors.New("Missing Input")
 
 	AlreadyHaveMerkleProof = errors.New("Already Have Merkle Proof")
 
@@ -131,16 +140,16 @@ func (w *Wallet) BlockHeight() uint32 {
 
 // CreateBitcoinReceive creates a transaction receiving the specified amount of bitcoin.
 func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Hash32,
-	value uint64) (*channels.ExpandedTx, error) {
+	value uint64) (*channels.ExpandedTx, uint, error) {
 
 	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "fee quotes")
+		return nil, 0, errors.Wrap(err, "fee quotes")
 	}
 
 	keys, err := w.GenerateKeys(contextID, w.config.BreakCount)
 	if err != nil {
-		return nil, errors.Wrap(err, "keys")
+		return nil, 0, errors.Wrap(err, "keys")
 	}
 
 	lockingScripts := make([]bitcoin.Script, len(keys))
@@ -148,11 +157,12 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 		lockingScripts[i] = key.LockingScript
 	}
 
+	standardFeeQuote := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard)
 	outputs, err := txbuilder.BreakValueLockingScripts(value, w.config.SatoshiBreakValue,
-		lockingScripts, channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).RelayFee.Rate(),
-		channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).MiningFee.Rate(), false, false)
+		lockingScripts, standardFeeQuote.RelayFee.Rate(), standardFeeQuote.MiningFee.Rate(), false,
+		false)
 	if err != nil {
-		return nil, errors.Wrap(err, "break value")
+		return nil, 0, errors.Wrap(err, "break value")
 	}
 
 	etx := &channels.ExpandedTx{
@@ -163,19 +173,20 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 		etx.Tx.AddTxOut(&output.TxOut)
 	}
 
-	if err := w.PopulateExpandedTx(ctx, etx); err != nil {
-		return nil, errors.Wrap(err, "populate")
+	depth, err := w.PopulateExpandedTx(ctx, etx)
+	if err == nil {
+		return etx, depth, nil
 	}
 
-	return etx, nil
+	return nil, depth, errors.Wrap(err, "populate")
 }
 
 func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) error {
+	etx *channels.ExpandedTx) (uint, error) {
 
 	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
 	if err != nil {
-		return errors.Wrap(err, "fee quotes")
+		return 0, errors.Wrap(err, "fee quotes")
 	}
 
 	miningFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).MiningFee.Rate()
@@ -186,19 +197,19 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 
 	utxos, err := w.SelectUTXOs(ctx, contextID, etx)
 	if err != nil {
-		return errors.Wrap(err, "utxos")
+		return 0, errors.Wrap(err, "utxos")
 	}
 
 	changeKeys, err := w.GenerateKeys(contextID, w.config.BreakCount)
 	if err != nil {
-		return errors.Wrap(err, "change keys")
+		return 0, errors.Wrap(err, "change keys")
 	}
 
 	var changeAddresses []txbuilder.AddressKeyID
 	for i, changeKey := range changeKeys {
 		ra, err := bitcoin.RawAddressFromLockingScript(changeKey.LockingScript)
 		if err != nil {
-			return errors.Wrapf(err, "change address %d", i)
+			return 0, errors.Wrapf(err, "change address %d", i)
 		}
 
 		changeAddresses = append(changeAddresses, txbuilder.AddressKeyID{
@@ -208,11 +219,7 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 
 	if err := txb.AddFundingBreakChange(utxos, w.config.SatoshiBreakValue,
 		changeAddresses); err != nil {
-		return errors.Wrap(err, "funding")
-	}
-
-	if err := w.PopulateExpandedTx(ctx, etx); err != nil {
-		return errors.Wrap(err, "populate")
+		return 0, errors.Wrap(err, "funding")
 	}
 
 	// Mark outputs as reserved
@@ -231,12 +238,19 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 	if outputsModified {
 		if err := w.outputs.save(ctx, w.store, w.BlockHeight()); err != nil {
 			w.outputsLock.Unlock()
-			return errors.Wrap(err, "save outputs")
+			return 0, errors.Wrap(err, "save outputs")
 		}
 	}
 	w.outputsLock.Unlock()
 
-	return nil
+	// Note: This can return MissingInputs or MissingMerkleProofAncestors that aren't necessarily
+	// failures.
+	depth, err := w.PopulateExpandedTx(ctx, etx)
+	if err != nil {
+		return depth, errors.Wrap(err, "populate")
+	}
+
+	return depth, nil
 }
 
 func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,

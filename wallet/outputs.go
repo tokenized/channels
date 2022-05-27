@@ -56,8 +56,6 @@ func (os OutputsByTimestamp) Less(i, j int) bool {
 }
 
 func (os *Outputs) load(ctx context.Context, store storage.StreamStorage) error {
-	fmt.Printf("Loading outputs\n")
-
 	paths, err := store.List(ctx, outputsPath)
 	if err != nil {
 		return errors.Wrap(err, "list")
@@ -68,7 +66,6 @@ func (os *Outputs) load(ctx context.Context, store storage.StreamStorage) error 
 		if err := storage.StreamRead(ctx, store, path, &outputs); err != nil {
 			return errors.Wrapf(err, "read %s", path)
 		}
-		fmt.Printf("Loaded %d outputs from %s\n", len(outputs), path)
 
 		*os = append(*os, outputs...)
 	}
@@ -79,7 +76,6 @@ func (os *Outputs) load(ctx context.Context, store storage.StreamStorage) error 
 
 func (os *Outputs) save(ctx context.Context, store storage.StreamStorage,
 	blockHeight uint32) error {
-	fmt.Printf("Saving outputs\n")
 
 	paths, err := store.List(ctx, outputsPath)
 	if err != nil {
@@ -100,7 +96,6 @@ func (os *Outputs) save(ctx context.Context, store storage.StreamStorage,
 		var archiveOutputs, unarchivedOutputs Outputs
 		for _, output := range outputs {
 			if output.SpentHeight != 0 && output.SpentHeight < pruneHeight {
-				fmt.Printf("Archiving output %s:%d\n", output.TxID, output.Index)
 				archiveOutputs = append(archiveOutputs, output)
 				modified = true
 				continue
@@ -123,7 +118,6 @@ func (os *Outputs) save(ctx context.Context, store storage.StreamStorage,
 		}
 
 		if len(unarchivedOutputs) > 0 {
-			fmt.Printf("Saving %d outputs to %s\n", len(unarchivedOutputs), path)
 			if err := storage.StreamWrite(ctx, store, path, &unarchivedOutputs); err != nil {
 				return errors.Wrapf(err, "write %s", path)
 			}
@@ -152,7 +146,6 @@ func (os *Outputs) save(ctx context.Context, store storage.StreamStorage,
 			// Append new archived outputs.
 			archivedOutputs = append(archivedOutputs, archiveOutputs...)
 
-			fmt.Printf("Saving %d archived outputs to %s\n", len(archivedOutputs), archivePath)
 			if err := storage.StreamWrite(ctx, store, archivePath, &archivedOutputs); err != nil {
 				return errors.Wrapf(err, "write %s", archivePath)
 			}
@@ -161,7 +154,6 @@ func (os *Outputs) save(ctx context.Context, store storage.StreamStorage,
 
 	// Remove any parts that no longer exist.
 	for _, path := range paths {
-		fmt.Printf("Removing outputs path %s\n", path)
 		if err := store.Remove(ctx, path); err != nil {
 			return errors.Wrapf(err, "remove %s", path)
 		}

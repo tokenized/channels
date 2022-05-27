@@ -16,7 +16,9 @@ var (
 )
 
 // Decimal represents a decimal number. It is designed to not have precision rounding errors for
-// prices.
+// prices. "value" is the integer value the represents the full value on both sides of the decimal
+// point. "precision" is the number of base 10 digits of "value" on the right side of the decimal
+// point.
 // TODO Implement multiplication, division, addition, and subtraction. --ce
 type Decimal struct {
 	value     uint64

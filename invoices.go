@@ -35,6 +35,18 @@ const (
 )
 
 var (
+	// InvoicesRequirementInputs specifies that all expanded txs must contain all parents. Meaning
+	// the transactions containing the outputs being spent by the inputs of the expanced tx. They do
+	// not require merkle proofs for them, but the tx must be included.
+	InvoicesRequirementInputs = []byte{0x01}
+
+	// InvoicesRequirementAncestorsToMerkleProofs specifies that all expanded txs must contain all
+	// ancestors in the ancestry tree up to the nearest merkle proof. Meaning all leaves of the
+	// ancestry tree must have merkle proofs.
+	InvoicesRequirementAncestorsToMerkleProofs = []byte{0x02}
+)
+
+var (
 	ProtocolIDInvoices = envelope.ProtocolID("I") // Protocol ID for invoice negotiation
 
 	TokenProtocolBitcoin = []byte("Bitcoin")

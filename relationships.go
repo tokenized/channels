@@ -42,8 +42,22 @@ type Entity struct {
 	// `UnsupportedProtocol` message.
 	SupportedProtocols envelope.ProtocolIDs `bsor:"3" json:"supported_protocols"`
 
-	Identity Identity `bsor:"4" json:"identity"`
+	// ProtocolRequirements allows specifying optional protocol specific requirements. Some
+	// protocols may allow the implementation to enforce certain requirements or not. For example,
+	// with the Invoices protocol, regarding ancestors, not all recipients will need to require
+	// full ancestry to verify a tx. So if full ancestry or just direct parents are required then
+	// that can be specified.
+	ProtocolRequirements ProtocolRequirements `bsor:"4" json:"protocol_requirements"`
+
+	Identity Identity `bsor:"5" json:"identity"`
 }
+
+type ProtocolRequirement struct {
+	Protocol    envelope.ProtocolID `bsor:"1" json:"protocol"`
+	Requirement bitcoin.Hex         `bsor:"2" json:"requirement"`
+}
+
+type ProtocolRequirements []*ProtocolRequirement
 
 type Identity struct {
 	Name     *string   `bsor:"1" json:"name,omitempty"`

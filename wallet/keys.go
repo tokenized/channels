@@ -219,7 +219,6 @@ func RandomHash() bitcoin.Hash32 {
 
 func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 	baseKey bitcoin.Key) error {
-	fmt.Printf("Loading keys\n")
 
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
@@ -231,7 +230,6 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 		if err := storage.StreamRead(ctx, store, path, &keySet); err != nil {
 			return errors.Wrapf(err, "read %s", path)
 		}
-		fmt.Printf("Loaded %d key sets from %s\n", len(keySet), path)
 
 		for contextID, keys := range keySet {
 			(*ks)[contextID] = keys
@@ -259,7 +257,6 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 }
 
 func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHeight uint32) error {
-	fmt.Printf("Saving keys\n")
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
 		return errors.Wrap(err, "list")
@@ -272,7 +269,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 	}
 	newKeySet := make(KeySet)
 
-	fmt.Printf("%d key parts\n", len(parts))
 	for lookup, keyset := range parts {
 		// Archive any keys that have been used already.
 		modified := false
@@ -305,7 +301,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 
 		path := fmt.Sprintf("%s/0x%02x", keysPath, lookup)
 		if !modified {
-			fmt.Printf("Keys not modified : %s\n", path)
 			if len(unarchivedKeys) > 0 {
 				for contextID, keys := range unarchivedKeys {
 					for _, key := range keys {
@@ -321,7 +316,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 		}
 
 		if len(unarchivedKeys) > 0 {
-			fmt.Printf("Saving %d key sets to %s\n", len(unarchivedKeys), path)
 			if err := storage.StreamWrite(ctx, store, path, &unarchivedKeys); err != nil {
 				return errors.Wrapf(err, "write %s", path)
 			}
@@ -335,8 +329,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 			}
 
 			paths = removePath(paths, path)
-		} else {
-			fmt.Printf("Zero keys\n")
 		}
 
 		if len(archiveKeys) > 0 {
@@ -362,7 +354,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 				}
 			}
 
-			fmt.Printf("Saving %d archived key sets to %s\n", len(archivedKeys), archivePath)
 			if err := storage.StreamWrite(ctx, store, archivePath, &archivedKeys); err != nil {
 				return errors.Wrapf(err, "write %s", archivePath)
 			}
@@ -371,7 +362,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 
 	// Remove any parts that no longer exist.
 	for _, path := range paths {
-		fmt.Printf("Removing key set path %s\n", path)
 		if err := store.Remove(ctx, path); err != nil {
 			return errors.Wrapf(err, "remove %s", path)
 		}

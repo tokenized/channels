@@ -59,6 +59,26 @@ func MockReceiveTx(ctx context.Context, wallet *Wallet, contextID bitcoin.Hash32
 		tx.AddTxOut(wire.NewTxOut(value, keys[i].LockingScript))
 	}
 
+	if err := wallet.AddTx(ctx, contextID, tx); err != nil {
+		panic(fmt.Sprintf("Failed to add input tx : %s", err))
+	}
+
+	return tx
+}
+
+func MockReceiveTxWithProof(ctx context.Context, wallet *Wallet, contextID bitcoin.Hash32,
+	outputValues ...uint64) *wire.MsgTx {
+
+	keys, err := wallet.GenerateKeys(contextID, len(outputValues))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to generate keys : %s", err))
+	}
+
+	tx := wire.NewMsgTx(1)
+	for i, value := range outputValues {
+		tx.AddTxOut(wire.NewTxOut(value, keys[i].LockingScript))
+	}
+
 	verifier, ok := wallet.merkleProofVerifier.(*MockMerkleProofVerifier)
 	if !ok {
 		panic("Wallet does not have mock merkle proof verifier")

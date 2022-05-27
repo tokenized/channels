@@ -30,6 +30,10 @@ const (
 type TxState uint8
 
 type Tx struct {
+	// ContextIDs are used to link txs to different external contexts. For example linking a tx to a
+	// relationship. Multiples are needed since a tx could be received from one tx and spent to
+	// another, or spent to more than one when it is unconfirmed, which would require sending the
+	// merkle proof to both relationships when it confirms.
 	ContextIDs   []bitcoin.Hash32            `bsor:"1" json:"context_ids"`
 	Tx           *wire.MsgTx                 `bsor:"2" json:"tx"`
 	State        TxState                     `bsor:"3" json:"safe,omitempty"`
