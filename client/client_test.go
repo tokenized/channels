@@ -98,10 +98,12 @@ func Test_Initiate(t *testing.T) {
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
 	initiation := &channels.RelationshipInitiation{
-		PublicKey:          user2Channel.Key().PublicKey(),
-		PeerChannels:       user2Channel.IncomingPeerChannels(),
-		SupportedProtocols: SupportedProtocols(),
-		Identity:           *user2Identity,
+		Configuration: channels.ChannelConfiguration{
+			PublicKey:          user2Channel.Key().PublicKey(),
+			PeerChannels:       user2Channel.IncomingPeerChannels(),
+			SupportedProtocols: SupportedProtocols(),
+		},
+		Identity: *user2Identity,
 	}
 
 	if err := user2Channel.SendMessage(ctx, initiation, nil); err != nil {
@@ -150,14 +152,16 @@ func Test_Initiate(t *testing.T) {
 		}
 		initiationFound = true
 
-		if !initiation.PublicKey.Equal(user2Channel.Key().PublicKey()) {
+		if !initiation.Configuration.PublicKey.Equal(user2Channel.Key().PublicKey()) {
 			t.Errorf("Wrong public key in initiation : got %s, want %s",
-				initiation.PublicKey, user2Channel.Key().PublicKey())
+				initiation.Configuration.PublicKey, user2Channel.Key().PublicKey())
 		}
 
-		if initiation.PeerChannels[0].ID != user2Channel.IncomingPeerChannels()[0].ID {
+		if initiation.Configuration.PeerChannels[0].ID !=
+			user2Channel.IncomingPeerChannels()[0].ID {
 			t.Errorf("Wrong peer channel in initiation : got %s, want %s",
-				initiation.PeerChannels[0].ID, user2Channel.IncomingPeerChannels()[0].ID)
+				initiation.Configuration.PeerChannels[0].ID,
+				user2Channel.IncomingPeerChannels()[0].ID)
 		}
 
 		if err := user1Channel.InitializeRelationship(ctx, channelMessage.Message.Payload(),
@@ -167,10 +171,12 @@ func Test_Initiate(t *testing.T) {
 
 		// Respond to relationship initiation
 		responseInitiation := &channels.RelationshipInitiation{
-			PublicKey:          user1Channel.Key().PublicKey(),
-			PeerChannels:       user1Channel.IncomingPeerChannels(),
-			SupportedProtocols: SupportedProtocols(),
-			Identity:           *user1Identity,
+			Configuration: channels.ChannelConfiguration{
+				PublicKey:          user1Channel.Key().PublicKey(),
+				PeerChannels:       user1Channel.IncomingPeerChannels(),
+				SupportedProtocols: SupportedProtocols(),
+			},
+			Identity: *user1Identity,
 		}
 
 		responseID := channelMessage.Message.ID()
@@ -227,14 +233,14 @@ func Test_Initiate(t *testing.T) {
 
 		publicKey := user1Channel.Key().PublicKey()
 
-		if !msg.PublicKey.Equal(publicKey) {
+		if !msg.Configuration.PublicKey.Equal(publicKey) {
 			t.Errorf("Wrong public key in initiation response : got %s, want %s",
-				msg.PublicKey, publicKey)
+				msg.Configuration.PublicKey, publicKey)
 		}
 
-		if msg.PeerChannels[0].ID != user1Channel.IncomingPeerChannels()[0].ID {
+		if msg.Configuration.PeerChannels[0].ID != user1Channel.IncomingPeerChannels()[0].ID {
 			t.Errorf("Wrong peer channel in initiation response : got %s, want %s",
-				msg.PeerChannels[0].ID, user1Channel.IncomingPeerChannels()[0].ID)
+				msg.Configuration.PeerChannels[0].ID, user1Channel.IncomingPeerChannels()[0].ID)
 		}
 	}
 

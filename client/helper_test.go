@@ -45,10 +45,12 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	}
 
 	userBInitiation := &channels.RelationshipInitiation{
-		PublicKey:          channelB.Key().PublicKey(),
-		PeerChannels:       channelB.IncomingPeerChannels(),
-		SupportedProtocols: SupportedProtocols(),
-		Identity:           *userBIdentity,
+		Configuration: channels.ChannelConfiguration{
+			PublicKey:          channelB.Key().PublicKey(),
+			PeerChannels:       channelB.IncomingPeerChannels(),
+			SupportedProtocols: SupportedProtocols(),
+		},
+		Identity: *userBIdentity,
 	}
 
 	initBMessage, err := channelB.CreateMessage(ctx, userBInitiation, nil)
@@ -62,10 +64,12 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	}
 
 	userAInitiation := &channels.RelationshipInitiation{
-		PublicKey:          channelA.Key().PublicKey(),
-		PeerChannels:       channelA.IncomingPeerChannels(),
-		SupportedProtocols: SupportedProtocols(),
-		Identity:           *userAIdentity,
+		Configuration: channels.ChannelConfiguration{
+			PublicKey:          channelA.Key().PublicKey(),
+			PeerChannels:       channelA.IncomingPeerChannels(),
+			SupportedProtocols: SupportedProtocols(),
+		},
+		Identity: *userAIdentity,
 	}
 
 	initAMessage, err := channelA.CreateMessage(ctx, userAInitiation, nil)

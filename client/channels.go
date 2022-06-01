@@ -133,11 +133,11 @@ func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Sc
 		return ErrNotRelationship
 	}
 
-	if err := c.outgoing.SetPeerChannels(initiation.PeerChannels); err != nil {
+	if err := c.outgoing.SetPeerChannels(initiation.Configuration.PeerChannels); err != nil {
 		return errors.Wrap(err, "set entity")
 	}
 
-	if err := c.SetExternalPublicKey(initiation.PublicKey); err != nil {
+	if err := c.SetExternalPublicKey(initiation.Configuration.PublicKey); err != nil {
 		return errors.Wrap(err, "set outgoing public key")
 	}
 
@@ -246,14 +246,13 @@ func (c *Channel) ProcessMessage(ctx context.Context,
 
 	publicKey := c.GetExternalPublicKey()
 
-	var entity *channels.Entity
+	var configuration *channels.ChannelConfiguration
 	switch msg := wMessage.Message.(type) {
 	case *channels.RelationshipInitiation:
-		relationship := channels.Entity(*msg)
-		entity = &relationship
+		configuration = &msg.Configuration
 		if publicKey == nil {
 			// Use newly established relationship key
-			publicKey = &entity.PublicKey
+			publicKey = &configuration.PublicKey
 		}
 	}
 
@@ -291,8 +290,8 @@ func (c *Channel) ProcessMessage(ctx context.Context,
 		return nil, nil
 	}
 
-	if c.Type() == ChannelTypeRelationship && entity != nil {
-		if err := c.outgoing.SetPeerChannels(entity.PeerChannels); err != nil {
+	if c.Type() == ChannelTypeRelationship && configuration != nil {
+		if err := c.outgoing.SetPeerChannels(configuration.PeerChannels); err != nil {
 			// TODO Allow entity updates --ce
 			if errors.Cause(err) == ErrAlreadyEstablished {
 				if err := msg.Reject(&channels.Reject{
@@ -307,7 +306,7 @@ func (c *Channel) ProcessMessage(ctx context.Context,
 			}
 		}
 
-		if err := c.SetExternalPublicKey(entity.PublicKey); err != nil {
+		if err := c.SetExternalPublicKey(configuration.PublicKey); err != nil {
 			return nil, errors.Wrap(err, "set outgoing public key")
 		}
 	}

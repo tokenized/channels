@@ -6,11 +6,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/google/uuid"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 
 	"github.com/go-test/deep"
+	"github.com/google/uuid"
 )
 
 func Test_PeerChannels_Create(t *testing.T) {
