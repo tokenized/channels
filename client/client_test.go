@@ -106,7 +106,7 @@ func Test_Initiate(t *testing.T) {
 		Identity: *user2Identity,
 	}
 
-	if err := user2Channel.SendMessage(ctx, initiation, nil); err != nil {
+	if _, err := user2Channel.SendMessage(ctx, initiation, nil); err != nil {
 		t.Fatalf("Failed to send initiation : %s", err)
 	}
 
@@ -180,7 +180,7 @@ func Test_Initiate(t *testing.T) {
 		}
 
 		responseID := channelMessage.Message.ID()
-		if err := user1Channel.SendMessage(ctx, responseInitiation, &responseID); err != nil {
+		if _, err := user1Channel.SendMessage(ctx, responseInitiation, &responseID); err != nil {
 			t.Fatalf("Failed to send initiation : %s", err)
 		}
 	}
@@ -356,7 +356,7 @@ func Test_Response(t *testing.T) {
 	js, _ := json.MarshalIndent(merkleProof, "", "  ")
 	t.Logf("Merkle Proof : %s", js)
 
-	if err := user2Channel.SendMessage(ctx, merkleProof, nil); err != nil {
+	if _, err := user2Channel.SendMessage(ctx, merkleProof, nil); err != nil {
 		t.Fatalf("Failed to send Merkle Proof : %s", err)
 	}
 

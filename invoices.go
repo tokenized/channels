@@ -16,14 +16,14 @@ import (
 const (
 	InvoicesVersion = uint8(0)
 
-	InvoicesMessageTypeInvalid       = InvoicesMessageType(0)
-	InvoicesMessageTypeRequestMenu   = InvoicesMessageType(1)
-	InvoicesMessageTypeMenu          = InvoicesMessageType(2)
-	InvoicesMessageTypePurchaseOrder = InvoicesMessageType(3)
-	InvoicesMessageTypeInvoice       = InvoicesMessageType(4)
-	InvoicesMessageTypeInvoiceTx     = InvoicesMessageType(5)
-	InvoicesMessageTypePayment       = InvoicesMessageType(6)
-	InvoicesMessageTypePaymentAccept = InvoicesMessageType(7)
+	InvoicesMessageTypeInvalid         = InvoicesMessageType(0)
+	InvoicesMessageTypeRequestMenu     = InvoicesMessageType(1)
+	InvoicesMessageTypeMenu            = InvoicesMessageType(2)
+	InvoicesMessageTypePurchaseOrder   = InvoicesMessageType(3)
+	InvoicesMessageTypeInvoice         = InvoicesMessageType(4)
+	InvoicesMessageTypeTransferRequest = InvoicesMessageType(5)
+	InvoicesMessageTypeTransfer        = InvoicesMessageType(6)
+	InvoicesMessageTypeTransferAccept  = InvoicesMessageType(7)
 
 	// InvoicesRejectCodeTxNotAccepted is a code specific to the invoices protocol that is placed
 	// in a Reject message to signify that a Bitcoin transaction was not accepted by the network.
@@ -48,6 +48,10 @@ const (
 	// InvoicesRequirementInputs requirement. Not all outputs being spent by the tx are included in
 	// the ancestors.
 	InvoicesRejectCodeTxMissingInput = uint32(8)
+
+	// InvoicesRejectCodeTransferUnknown means that a received Transfer does not match any
+	// previously sent TransferRequest.
+	InvoicesRejectCodeTransferUnknown = uint32(9)
 )
 
 var (
@@ -77,29 +81,29 @@ type InvoicesMessageType uint8
 // Vendor Workflow:
 //   1. Vendor sends Menu containing available Services/Products.
 //   2. Buyer sends PurchaseOrder with requested Services/Products from the menu.
-//   3. A. Vendor approves and sends the buyer an InvoiceTx containing an Invoice corresponding to
+//   3. A. Vendor approves and sends the buyer an TransferRequest containing an Invoice corresponding to
 //      the PurchaseOrder and
 //      B. Vendor rejects and sends a modified PurchaseOrder for buyer approval. This negotiation
 //      can continue indefinitely.
-//   4. If the vendor approved then the buyer sends a InvoicePayment that embeds the invoice
+//   4. If the vendor approved then the buyer sends a Transfer that embeds the invoice
 //     otherwise the buyer either quits, modifies the invoice, or keeps the same invoice and sends
 //     it back to the vendor.
 //
 // User to User Workflow (Request To Send Payment):
 //   1. User A sends either a PurchaseOrder to request to pay User B. The purchase order describes
 //   the purpose of the payment.
-//   2. User B responds with an InvoiceTx to specify how User A should make the payment. The
-//   InvoiceTx is an incomplete tx paying User B and optionally an Invoice output describing the
+//   2. User B responds with an TransferRequest to specify how User A should make the payment. The
+//   TransferRequest is an incomplete tx paying User B and optionally an Invoice output describing the
 //   purpose of the payment.
 //   3. User A completes the transaction by adding inputs and other payment information required,
-//   signs it, and responds with an InvoicePayment message.
+//   signs it, and responds with an Transfer message.
 //
 // User to User Workflow (Request To Receive Payment):
-//   1. User A sends an InvoiceTx to request payment from User B. The InvoiceTx contains an
+//   1. User A sends an TransferRequest to request payment from User B. The TransferRequest contains an
 //   incomplete tx paying User A and optionally an Invoice output describing the purpose of the
 //   payment.
 //   2. User B completes the transaction by adding inputs and other payment information required,
-//   signs it, and responds with an InvoicePayment message.
+//   signs it, and responds with an Transfer message.
 //   3. User A signs any inputs they might have on the transaction and broadcasts it.
 
 // RequestMenu is a request to receive the current menu.
@@ -187,7 +191,7 @@ func (m *PurchaseOrder) Write() (envelope.Data, error) {
 // Identity is implicit based on the peer channel relationship and the key that signed the message.
 // The vendor can either add an input to the payment tx to sign it directly, or the buyer can retain
 // signatures from the off chain communication to prove the vendor approved the payment. The off
-// chain communication should include a signed InvoiceTx message that contains the payment tx which
+// chain communication should include a signed TransferRequest message that contains the payment tx which
 // contains the Invoice.
 type Invoice struct {
 	Items      InvoiceItems `bsor:"1" json:"items"`
@@ -217,23 +221,24 @@ func (m *Invoice) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
-// InvoiceTx is an incomplete tx that includes an output containing the InvoiceData message and
-// payments for the items contained in the invoice.
-type InvoiceTx struct {
+// TransferRequest is an incomplete tx that includes an output containing the Invoice message and
+// transfers of requested tokens/bitcoin for the items contained in the invoice.
+type TransferRequest struct {
 	Tx   *ExpandedTx     `bsor:"1" json:"tx"`
 	Fees FeeRequirements `bsor:"2" json:"fees"` // tx fee requirements
 }
 
-func (*InvoiceTx) ProtocolID() envelope.ProtocolID {
+func (*TransferRequest) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDInvoices
 }
 
-func (m *InvoiceTx) Write() (envelope.Data, error) {
+func (m *TransferRequest) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeInvoiceTx)))
+	payload = append(payload,
+		bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeTransferRequest)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
@@ -245,21 +250,21 @@ func (m *InvoiceTx) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
-// InvoicePayment is a payment transaction that embeds the approved invoice.
-type InvoicePayment struct {
+// Transfer is a payment transaction that embeds the approved invoice.
+type Transfer struct {
 	Tx *ExpandedTx `bsor:"1" json:"tx"`
 }
 
-func (*InvoicePayment) ProtocolID() envelope.ProtocolID {
+func (*Transfer) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDInvoices
 }
 
-func (m *InvoicePayment) Write() (envelope.Data, error) {
+func (m *Transfer) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypePayment)))
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeTransfer)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
@@ -271,21 +276,58 @@ func (m *InvoicePayment) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDInvoices}, payload}, nil
 }
 
-// InvoicePaymentAccept is an acceptance of an invoice payment. It should always be wrapped in a
-// response to the invoice payment message.
-type InvoicePaymentAccept struct {
+// Fulfills verifies that all inputs and outputs in the transfer request are in the transfer.
+// The transfer should just have new inputs and outputs added to complete any requested transfers.
+func (t Transfer) Fulfills(request *TransferRequest) bool {
+	for _, rtxin := range request.Tx.Tx.TxIn {
+		found := false
+		for _, ttxin := range t.Tx.Tx.TxIn {
+			if bytes.Equal(rtxin.PreviousOutPoint.Hash[:], ttxin.PreviousOutPoint.Hash[:]) &&
+				rtxin.PreviousOutPoint.Index == ttxin.PreviousOutPoint.Index &&
+				rtxin.Sequence == ttxin.Sequence {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	for _, rtxout := range request.Tx.Tx.TxOut {
+		found := false
+		for _, ttxout := range t.Tx.Tx.TxOut {
+			if bytes.Equal(rtxout.LockingScript[:], ttxout.LockingScript[:]) &&
+				rtxout.Value == ttxout.Value {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }
 
-func (*InvoicePaymentAccept) ProtocolID() envelope.ProtocolID {
+// TransferAccept is an acceptance of an transfer. It should always be wrapped in a
+// response to the transfer message.
+type TransferAccept struct {
+}
+
+func (*TransferAccept) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDInvoices
 }
 
-func (m *InvoicePaymentAccept) Write() (envelope.Data, error) {
+func (m *TransferAccept) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(InvoicesVersion))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypePaymentAccept)))
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(InvoicesMessageTypeTransferAccept)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
@@ -470,12 +512,12 @@ func InvoicesMessageForType(messageType InvoicesMessageType) Writer {
 		return &PurchaseOrder{}
 	case InvoicesMessageTypeInvoice:
 		return &Invoice{}
-	case InvoicesMessageTypeInvoiceTx:
-		return &InvoiceTx{}
-	case InvoicesMessageTypePayment:
-		return &InvoicePayment{}
-	case InvoicesMessageTypePaymentAccept:
-		return &InvoicePaymentAccept{}
+	case InvoicesMessageTypeTransferRequest:
+		return &TransferRequest{}
+	case InvoicesMessageTypeTransfer:
+		return &Transfer{}
+	case InvoicesMessageTypeTransferAccept:
+		return &TransferAccept{}
 	case InvoicesMessageTypeInvalid:
 		return nil
 	default:
@@ -493,12 +535,12 @@ func InvoicesMessageTypeFor(message Writer) InvoicesMessageType {
 		return InvoicesMessageTypePurchaseOrder
 	case *Invoice:
 		return InvoicesMessageTypeInvoice
-	case *InvoiceTx:
-		return InvoicesMessageTypeInvoiceTx
-	case *InvoicePayment:
-		return InvoicesMessageTypePayment
-	case *InvoicePaymentAccept:
-		return InvoicesMessageTypePaymentAccept
+	case *TransferRequest:
+		return InvoicesMessageTypeTransferRequest
+	case *Transfer:
+		return InvoicesMessageTypeTransfer
+	case *TransferAccept:
+		return InvoicesMessageTypeTransferAccept
 	default:
 		return InvoicesMessageTypeInvalid
 	}
@@ -545,11 +587,11 @@ func (v *InvoicesMessageType) SetString(s string) error {
 	case "invoice":
 		*v = InvoicesMessageTypeInvoice
 	case "invoice_tx":
-		*v = InvoicesMessageTypeInvoiceTx
+		*v = InvoicesMessageTypeTransferRequest
 	case "payment":
-		*v = InvoicesMessageTypePayment
+		*v = InvoicesMessageTypeTransfer
 	case "accept":
-		*v = InvoicesMessageTypePaymentAccept
+		*v = InvoicesMessageTypeTransferAccept
 	default:
 		*v = InvoicesMessageTypeInvalid
 		return fmt.Errorf("Unknown InvoicesMessageType value \"%s\"", s)
@@ -568,11 +610,11 @@ func (v InvoicesMessageType) String() string {
 		return "purchase_order"
 	case InvoicesMessageTypeInvoice:
 		return "invoice"
-	case InvoicesMessageTypeInvoiceTx:
+	case InvoicesMessageTypeTransferRequest:
 		return "invoice_tx"
-	case InvoicesMessageTypePayment:
+	case InvoicesMessageTypeTransfer:
 		return "payment"
-	case InvoicesMessageTypePaymentAccept:
+	case InvoicesMessageTypeTransferAccept:
 		return "accept"
 	default:
 		return ""
@@ -597,6 +639,8 @@ func InvoicesRejectCodeToString(code uint32) string {
 		return "tx_missing_ancestor"
 	case InvoicesRejectCodeTxMissingInput:
 		return "tx_missing_input"
+	case InvoicesRejectCodeTransferUnknown:
+		return "transfer_unknown"
 	default:
 		return "parse_error"
 	}

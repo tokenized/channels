@@ -167,7 +167,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 	tx.AddTxOut(wire.NewTxOut(0, dataScript))
 	t.Logf("Tx (%d bytes) : %s", tx.SerializeSize(), tx)
 
-	msg := &InvoiceTx{
+	msg := &TransferRequest{
 		Tx: &ExpandedTx{
 			Tx: tx,
 		},
@@ -220,7 +220,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("Invoice message : %s", js)
 
-	if _, ok := readMsg.(*InvoiceTx); !ok {
+	if _, ok := readMsg.(*TransferRequest); !ok {
 		t.Errorf("Wrong message type")
 	}
 

@@ -103,7 +103,7 @@ func Test_Messages_Load(t *testing.T) {
 				messages[i] = script
 
 				if i < test.processCount {
-					channel.MarkMessageProcessed(ctx, message.ID())
+					channel.MarkMessageIsProcessed(ctx, message.ID())
 				}
 			}
 

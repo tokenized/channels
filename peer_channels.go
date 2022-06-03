@@ -35,12 +35,17 @@ type PeerChannelType uint8
 // user with no peer channels service to initiate a relationship and have a peer channel to pay the
 // initial invoice. It also allows authorization of actions on the account via the signatures in the
 // Channels messages.
-func CalculatePeerChannelsAccount(publicKey bitcoin.PublicKey) (uuid.UUID, uuid.UUID) {
-	var accountID, token uuid.UUID
+func CalculatePeerChannelsAccountID(publicKey bitcoin.PublicKey) uuid.UUID {
+	var accountID uuid.UUID
 	publicKeyHash := bitcoin.Hash160(publicKey.Bytes())
 	copy(accountID[:], publicKeyHash)
+	return accountID
+}
+
+func CalculatePeerChannelsAccountToken(publicKey bitcoin.PublicKey) uuid.UUID {
+	var token uuid.UUID
 	copy(token[:], publicKey.Bytes())
-	return accountID, token
+	return token
 }
 
 type CreateChannel struct {

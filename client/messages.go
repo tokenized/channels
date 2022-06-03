@@ -81,14 +81,14 @@ func (m *Message) IsAwaitingResponse() bool {
 	return m.isAwaitingResponse
 }
 
-func (m *Message) SetIsAwaitingResponse() {
+func (m *Message) setIsAwaitingResponse() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	m.isAwaitingResponse = true
 }
 
-func (m *Message) ClearIsAwaitingResponse() {
+func (m *Message) clearIsAwaitingResponse() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 

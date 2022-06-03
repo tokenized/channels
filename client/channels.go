@@ -52,6 +52,9 @@ type Channel struct {
 	// externalPublicKey is the base public key of the other party.
 	externalPublicKey *bitcoin.PublicKey
 
+	// externalID is an ID used by the higher level application
+	externalID *bitcoin.Hash32
+
 	// incoming represents the messages are received.
 	incoming *CommunicationChannel
 
@@ -111,6 +114,20 @@ func (c *Channel) Hash() bitcoin.Hash32 {
 	return c.hash
 }
 
+func (c *Channel) SetExternalID(id bitcoin.Hash32) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	c.externalID = &id
+}
+
+func (c *Channel) ExternalID() *bitcoin.Hash32 {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	return c.externalID
+}
+
 func (c *Channel) Key() bitcoin.Key {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -146,11 +163,17 @@ func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Sc
 		return errors.Wrap(err, "add message")
 	}
 
-	if err := c.MarkMessageProcessed(ctx, msg.ID()); err != nil {
+	if err := c.MarkMessageIsProcessed(ctx, msg.ID()); err != nil {
 		return errors.Wrap(err, "mark processed")
 	}
 
 	return nil
+}
+
+// GetMessage returns the message for the specified id. It returns a copy so the message
+// modification functions will not work.
+func (c *Channel) GetMessage(ctx context.Context, id uint64) (*Message, error) {
+	return c.outgoing.GetMessage(ctx, id)
 }
 
 func (c *Channel) CreateMessage(ctx context.Context, msg channels.Writer,
@@ -171,32 +194,40 @@ func (c *Channel) CreateMessage(ctx context.Context, msg channels.Writer,
 }
 
 func (c *Channel) SendMessage(ctx context.Context, msg channels.Writer,
-	responseID *uint64) error {
+	responseID *uint64) (uint64, error) {
 
 	message, err := c.CreateMessage(ctx, msg, responseID)
 	if err != nil {
-		return errors.Wrap(err, "create")
+		return 0, errors.Wrap(err, "create")
 	}
 
 	if err := c.outgoing.sendMessage(ctx, c.peerChannelsFactory, message); err != nil {
-		return errors.Wrap(err, "send")
+		return 0, errors.Wrap(err, "send")
 	}
 
 	if responseID != nil {
-		if err := c.MarkMessageProcessed(ctx, *responseID); err != nil {
-			return errors.Wrap(err, "mark processed")
+		if err := c.MarkMessageIsProcessed(ctx, *responseID); err != nil {
+			return 0, errors.Wrap(err, "mark processed")
 		}
 	}
 
-	return nil
+	return message.ID(), nil
 }
 
 func (c *Channel) NewMessage(ctx context.Context) (*Message, error) {
 	return c.outgoing.newMessage(ctx)
 }
 
-func (c *Channel) MarkMessageProcessed(ctx context.Context, id uint64) error {
-	return c.incoming.MarkMessageProcessed(ctx, id)
+func (c *Channel) SetMessageIsAwaitingResponse(ctx context.Context, id uint64) error {
+	return c.outgoing.SetMessageIsAwaitingResponse(ctx, id)
+}
+
+func (c *Channel) ClearMessageIsAwaitingResponse(ctx context.Context, id uint64) error {
+	return c.outgoing.ClearMessageIsAwaitingResponse(ctx, id)
+}
+
+func (c *Channel) MarkMessageIsProcessed(ctx context.Context, id uint64) error {
+	return c.incoming.MarkMessageIsProcessed(ctx, id)
 }
 
 func (c *Channel) GetExternalPublicKey() *bitcoin.PublicKey {
@@ -387,6 +418,16 @@ func (c *Channel) Serialize(w io.Writer) error {
 		}
 	}
 
+	if err := binary.Write(w, endian, c.externalID != nil); err != nil {
+		return errors.Wrap(err, "has external id")
+	}
+
+	if c.externalID != nil {
+		if err := c.externalID.Serialize(w); err != nil {
+			return errors.Wrap(err, "external id")
+		}
+	}
+
 	return nil
 }
 
@@ -418,6 +459,20 @@ func (c *Channel) Deserialize(r io.Reader) error {
 		}
 	} else {
 		c.externalPublicKey = nil
+	}
+
+	var hasExternalID bool
+	if err := binary.Read(r, endian, &hasExternalID); err != nil {
+		return errors.Wrap(err, "has external id")
+	}
+
+	if hasExternalID {
+		c.externalID = &bitcoin.Hash32{}
+		if err := c.externalID.Deserialize(r); err != nil {
+			return errors.Wrap(err, "external id")
+		}
+	} else {
+		c.externalID = nil
 	}
 
 	return nil

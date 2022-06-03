@@ -56,6 +56,13 @@ type Reject struct {
 	Note             string              `bsor:"5" json:"note"`
 }
 
+func (r Reject) Error() string {
+	if len(r.Note) > 0 {
+		return fmt.Sprintf("%s: %s", r.CodeToString(), r.Note)
+	}
+	return r.CodeToString()
+}
+
 func (*Reject) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDReject
 }

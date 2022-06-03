@@ -94,7 +94,7 @@ func Test_Invoice(t *testing.T) {
 
 	t.Logf("Invoice tx : %s", tx.String())
 
-	invoiceTx := &channels.InvoiceTx{
+	invoiceTx := &channels.TransferRequest{
 		Tx: &channels.ExpandedTx{
 			Tx: tx,
 		},
@@ -115,7 +115,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ := json.MarshalIndent(invoiceTx, "", "  ")
 	t.Logf("Invoice Tx : %s", js)
 
-	if err := merchantChannel.SendMessage(ctx, invoiceTx, nil); err != nil {
+	if _, err := merchantChannel.SendMessage(ctx, invoiceTx, nil); err != nil {
 		t.Fatalf("Failed to send invoice : %s", err)
 	}
 
@@ -140,12 +140,12 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
 
-	receivedInvoiceTx, ok := wMessage.Message.(*channels.InvoiceTx)
+	receivedTransferRequest, ok := wMessage.Message.(*channels.TransferRequest)
 	if !ok {
 		t.Fatalf("Received message not an invoice tx")
 	}
 
-	js, _ = json.MarshalIndent(receivedInvoiceTx, "", "  ")
+	js, _ = json.MarshalIndent(receivedTransferRequest, "", "  ")
 	t.Logf("Received Invoice Tx : %s", js)
 
 	paymentKey, err := bitcoin.GenerateKey(bitcoin.MainNet)
@@ -158,7 +158,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Failed to create locking script : %s", err)
 	}
 
-	txb, err := txbuilder.NewTxBuilderFromWire(0.5, 0.25, receivedInvoiceTx.Tx.Tx, nil)
+	txb, err := txbuilder.NewTxBuilderFromWire(0.5, 0.25, receivedTransferRequest.Tx.Tx, nil)
 	if err != nil {
 		t.Fatalf("Failed to import tx into txbuilder : %s", err)
 	}
@@ -179,7 +179,7 @@ func Test_Invoice(t *testing.T) {
 
 	fakeMerkleProof := MockMerkleProof(previousTx)
 
-	payment := &channels.InvoicePayment{
+	payment := &channels.Transfer{
 		Tx: &channels.ExpandedTx{
 			Tx: txb.MsgTx,
 			Ancestors: channels.AncestorTxs{
@@ -196,7 +196,7 @@ func Test_Invoice(t *testing.T) {
 	t.Logf("Invoice tx id : %d", buyerMessages[0].Message.ID())
 
 	responseID := buyerMessages[0].Message.ID()
-	if err := buyerChannel.SendMessage(ctx, payment, &responseID); err != nil {
+	if _, err := buyerChannel.SendMessage(ctx, payment, &responseID); err != nil {
 		t.Fatalf("Failed to send invoice payment : %s", err)
 	}
 
@@ -225,21 +225,21 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Payment is not a response")
 	}
 
-	receivedInvoicePayment, ok := wMessage.Message.(*channels.InvoicePayment)
+	receivedTransfer, ok := wMessage.Message.(*channels.Transfer)
 	if !ok {
 		t.Fatalf("Received message not an invoice payment")
 	}
 
-	js, _ = json.MarshalIndent(receivedInvoicePayment, "", "  ")
+	js, _ = json.MarshalIndent(receivedTransfer, "", "  ")
 	t.Logf("Received Invoice Payment : %s", js)
 
-	paymentAccept := &channels.InvoicePaymentAccept{}
+	paymentAccept := &channels.TransferAccept{}
 
 	js, _ = json.MarshalIndent(paymentAccept, "", "  ")
 	t.Logf("Invoice Payment Accept : %s", js)
 
 	responseID = merchantMessages[0].Message.ID()
-	if err := merchantChannel.SendMessage(ctx, paymentAccept, &responseID); err != nil {
+	if _, err := merchantChannel.SendMessage(ctx, paymentAccept, &responseID); err != nil {
 		t.Fatalf("Failed to send invoice payment accept : %s", err)
 	}
 
@@ -268,7 +268,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Payment accept is not a response")
 	}
 
-	receivedPaymentAccept, ok := wMessage.Message.(*channels.InvoicePaymentAccept)
+	receivedPaymentAccept, ok := wMessage.Message.(*channels.TransferAccept)
 	if !ok {
 		t.Fatalf("Received message not a payment accept")
 	}
@@ -276,7 +276,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(receivedPaymentAccept, "", "  ")
 	t.Logf("Received Payment Accept : %s", js)
 
-	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
+	if err := buyerMessages[0].Channel.MarkMessageIsProcessed(ctx,
 		buyerMessages[0].Message.ID()); err != nil {
 		t.Fatalf("Failed to mark message as processed : %s", err)
 	}
@@ -293,7 +293,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(merkleProof, "", "  ")
 	t.Logf("Merkle Proof : %s", js)
 
-	if err := merchantChannel.SendMessage(ctx, merkleProof, nil); err != nil {
+	if _, err := merchantChannel.SendMessage(ctx, merkleProof, nil); err != nil {
 		t.Fatalf("Failed to send Merkle Proof : %s", err)
 	}
 
@@ -330,7 +330,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(receivedMerkleProof, "", "  ")
 	t.Logf("Received Merkle Proof : %s", js)
 
-	if err := buyerMessages[0].Channel.MarkMessageProcessed(ctx,
+	if err := buyerMessages[0].Channel.MarkMessageIsProcessed(ctx,
 		buyerMessages[0].Message.ID()); err != nil {
 		t.Fatalf("Failed to mark message as processed : %s", err)
 	}

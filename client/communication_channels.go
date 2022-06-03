@@ -81,6 +81,21 @@ func (c *CommunicationChannel) SetPeerChannels(peerChannels channels.PeerChannel
 	return nil
 }
 
+// GetMessage returns the message for the specified id. It returns a copy so the message
+// modification functions will not work.
+func (c *CommunicationChannel) GetMessage(ctx context.Context, id uint64) (*Message, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	message, err := c.getMessage(ctx, id)
+	if err != nil {
+		return nil, errors.Wrap(err, "get message")
+	}
+
+	msg := *message
+	return &msg, nil
+}
+
 func (c *CommunicationChannel) GetUnprocessedMessages(ctx context.Context) (Messages, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -98,46 +113,103 @@ func (c *CommunicationChannel) GetUnprocessedMessages(ctx context.Context) (Mess
 	return result, nil
 }
 
-func (c *CommunicationChannel) MarkMessageProcessed(ctx context.Context, id uint64) error {
+func (c *CommunicationChannel) MarkMessageIsProcessed(ctx context.Context, id uint64) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if id < uint64(c.loadedOffset) {
-		messages, err := loadMessageFile(ctx, c.store, c.basePath, int(id))
-		if err != nil {
-			return errors.Wrapf(err, "load file %d", id)
-		}
+	message, err := c.getMessage(ctx, id)
+	if err != nil {
+		return errors.Wrap(err, "get message")
+	}
 
-		offset := id - messages[0].ID()
-		messages[offset].setIsProcessed()
+	message.setIsProcessed()
 
-		if err := saveMessageFile(ctx, c.store, c.basePath, messages); err != nil {
-			return errors.Wrapf(err, "save file %d", id)
-		}
+	if err := c.updateLowestUnprocessed(ctx, id); err != nil {
+		return errors.Wrap(err, "update lowest unprocessed")
+	}
 
+	return nil
+}
+
+func (c *CommunicationChannel) SetMessageIsAwaitingResponse(ctx context.Context, id uint64) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	message, err := c.getMessage(ctx, id)
+	if err != nil {
+		return errors.Wrap(err, "get message")
+	}
+
+	message.setIsAwaitingResponse()
+
+	if err := c.updateLowestUnprocessed(ctx, id); err != nil {
+		return errors.Wrap(err, "update lowest unprocessed")
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) ClearMessageIsAwaitingResponse(ctx context.Context, id uint64) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	message, err := c.getMessage(ctx, id)
+	if err != nil {
+		return errors.Wrap(err, "get message")
+	}
+
+	message.clearIsAwaitingResponse()
+
+	if err := c.updateLowestUnprocessed(ctx, id); err != nil {
+		return errors.Wrap(err, "update lowest unprocessed")
+	}
+
+	return nil
+}
+
+func (c *CommunicationChannel) updateLowestUnprocessed(ctx context.Context, id uint64) error {
+	offset := id - uint64(c.loadedOffset)
+	current := uint32(id)
+	count := uint64(len(c.messages))
+
+	if current != c.lowestUnprocessed {
 		return nil
 	}
 
-	offset := uint32(id - uint64(c.loadedOffset))
-	c.messages[offset].setIsProcessed()
+	for {
+		message := c.messages[offset]
+		if !message.IsProcessed() || message.IsAwaitingResponse() {
+			return nil
+		}
 
-	current := uint32(id)
-	count := uint32(len(c.messages))
-	for current == c.lowestUnprocessed {
 		current++
 		c.lowestUnprocessed++
 		offset++
 
 		if offset == count {
-			break
-		}
-
-		if !c.messages[offset].IsProcessed() {
-			break
+			return nil
 		}
 	}
+}
 
-	return nil
+func (c *CommunicationChannel) getMessage(ctx context.Context, id uint64) (*Message, error) {
+	if id < uint64(c.loadedOffset) {
+		messages, err := loadMessageFile(ctx, c.store, c.basePath, int(id))
+		if err != nil {
+			return nil, errors.Wrapf(err, "load file %d", id)
+		}
+
+		offset := id - messages[0].ID()
+
+		if err := saveMessageFile(ctx, c.store, c.basePath, messages); err != nil {
+			return nil, errors.Wrapf(err, "save file %d", id)
+		}
+
+		return messages[offset], nil
+	}
+
+	offset := uint32(id - uint64(c.loadedOffset))
+	return c.messages[offset], nil
 }
 
 func (c *CommunicationChannel) newMessage(ctx context.Context) (*Message, error) {
