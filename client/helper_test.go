@@ -98,14 +98,15 @@ func MockClient(ctx context.Context, store storage.StreamReadWriter,
 		panic(fmt.Sprintf("Failed to create account : %s", err))
 	}
 
-	peerAccountClient := peer_channels.NewAccountClient(peerClient, *accountID, *accountToken)
-
 	key, err := bitcoin.GenerateKey(bitcoin.MainNet)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create key : %s", err))
 	}
 
-	return NewClient(key, peerAccountClient, store, peerChannelsFactory)
+	client := NewClient(key, store, peerChannelsFactory)
+	client.SetPeerChannelsURL(peer_channels.MockClientURL)
+	client.SetPeerChannelsAccount(*accountID, *accountToken)
+	return client
 }
 
 func MockMerkleProof(tx *wire.MsgTx) *merkle_proof.MerkleProof {

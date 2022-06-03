@@ -44,7 +44,8 @@ type Wrapper interface {
 type PeerChannel struct {
 	BaseURL    string `bsor:"1" json:"base_url"`
 	ID         string `bsor:"2" json:"id"`
-	WriteToken string `bsor:"3" json:"write_token"`
+	ReadToken  string `bsor:"3" json:"read_token,omitempty"`
+	WriteToken string `bsor:"4" json:"write_token,omitempty"`
 }
 
 type PeerChannels []PeerChannel

@@ -34,9 +34,13 @@ var (
 )
 
 type Client struct {
-	baseKey           bitcoin.Key
-	peerAccountClient peer_channels.AccountClient
-	channels          Channels
+	baseKey  bitcoin.Key
+	channels Channels
+
+	// Used to create new channels
+	peerChannelsBaseURL      *string
+	peerChannelsAccountID    *string
+	peerChannelsAccountToken *string
 
 	store               storage.StreamReadWriter
 	peerChannelsFactory *peer_channels.Factory
@@ -45,6 +49,9 @@ type Client struct {
 	messagesChannel chan ChannelMessage
 
 	channelHashes []bitcoin.Hash32 // used to load channels from storage
+
+	accountThread  *threads.Thread
+	channelThreads threads.Threads
 
 	lock sync.RWMutex
 }
@@ -61,14 +68,54 @@ func SupportedProtocols() envelope.ProtocolIDs {
 	}
 }
 
-func NewClient(baseKey bitcoin.Key, peerAccountClient peer_channels.AccountClient,
-	store storage.StreamReadWriter, peerChannelsFactory *peer_channels.Factory) *Client {
+func NewClient(baseKey bitcoin.Key, store storage.StreamReadWriter,
+	peerChannelsFactory *peer_channels.Factory) *Client {
 	return &Client{
 		baseKey:             baseKey,
-		peerAccountClient:   peerAccountClient,
 		store:               store,
 		peerChannelsFactory: peerChannelsFactory,
 	}
+}
+
+func (c *Client) SetPeerChannelsURL(url string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.peerChannelsBaseURL = &url
+}
+
+func (c *Client) SetPeerChannelsAccount(id, token string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.peerChannelsAccountID = &id
+	c.peerChannelsAccountToken = &token
+}
+
+func (c *Client) createPeerChannelsClient(ctx context.Context) (peer_channels.Client, error) {
+	if c.peerChannelsBaseURL == nil {
+		return nil, errors.New("Missing Peer Channels Base URL")
+	}
+
+	return c.peerChannelsFactory.NewClient(*c.peerChannelsBaseURL)
+}
+
+func (c *Client) createPeerChannelsAccountClient(ctx context.Context) (peer_channels.AccountClient, error) {
+	client, err := c.createPeerChannelsClient(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "create client")
+	}
+
+	if c.peerChannelsAccountID == nil {
+		return nil, errors.New("Missing Peer Channels Account ID")
+	}
+
+	if c.peerChannelsAccountToken == nil {
+		return nil, errors.New("Missing Peer Channels Account Token")
+	}
+
+	return peer_channels.NewAccountClient(client, *c.peerChannelsAccountID,
+		*c.peerChannelsAccountToken), nil
 }
 
 func (c *Client) BaseKey() bitcoin.Key {
@@ -116,26 +163,31 @@ func (c *Client) GetChannel(channelID string) (*Channel, error) {
 // relationships. Those relationships will be
 func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
 	contextID bitcoin.Hash32) (*Channel, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	peerChannel, err := c.peerAccountClient.CreatePublicChannel(ctx)
+	accountClient, err := c.createPeerChannelsAccountClient(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "create account client")
+	}
+
+	peerChannel, err := accountClient.CreatePublicChannel(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create peer channel")
 	}
 
 	peerChannels := channels.PeerChannels{
 		{
-			BaseURL: c.peerAccountClient.BaseURL(),
+			BaseURL: accountClient.BaseURL(),
 			ID:      peerChannel.ID,
 		},
 	}
 
-	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	hash, key := wallet.GenerateHashKey(c.baseKey, contextID)
 	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
 
-	c.lock.Lock()
 	c.channels = append(c.channels, channel)
-	c.lock.Unlock()
 
 	return channel, nil
 }
@@ -157,27 +209,64 @@ func (c *Client) RegisterRelationshipInitiationChannel(ctx context.Context,
 
 func (c *Client) CreateRelationshipChannel(ctx context.Context,
 	contextID bitcoin.Hash32) (*Channel, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	peerChannel, err := c.peerAccountClient.CreateChannel(ctx)
+	accountClient, err := c.createPeerChannelsAccountClient(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "create account client")
+	}
+
+	peerChannel, err := accountClient.CreateChannel(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create peer channel")
 	}
 
 	peerChannels := channels.PeerChannels{
 		{
-			BaseURL:    c.peerAccountClient.BaseURL(),
+			BaseURL:    accountClient.BaseURL(),
 			ID:         peerChannel.ID,
 			WriteToken: peerChannel.GetWriteToken(),
 		},
 	}
 
-	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	hash, key := wallet.GenerateHashKey(c.baseKey, contextID)
 	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
 
-	c.lock.Lock()
 	c.channels = append(c.channels, channel)
-	c.lock.Unlock()
+
+	return channel, nil
+}
+
+func (c *Client) CreateInitialServiceChannel(ctx context.Context,
+	contextID bitcoin.Hash32) (*Channel, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if c.peerChannelsBaseURL == nil {
+		return nil, errors.New("Missing Peer Channels Base URL")
+	}
+
+	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	publicKey := key.PublicKey()
+
+	channelID := channels.CalculatePeerChannelsServiceChannelID(publicKey)
+	channelToken := channels.CalculatePeerChannelsServiceChannelID(publicKey)
+
+	peerChannels := channels.PeerChannels{
+		{
+			BaseURL: *c.peerChannelsBaseURL,
+			ID:      channelID,
+			// Only set the read token when the channel isn't part of the client's peer channel account
+			ReadToken: channelToken,
+		},
+	}
+
+	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
+		c.peerChannelsFactory)
+
+	c.channels = append(c.channels, channel)
 
 	return channel, nil
 }
@@ -243,13 +332,69 @@ func (c *Client) CloseIncomingChannel(ctx context.Context) {
 func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	wait := &sync.WaitGroup{}
 	incomingMessages := make(chan peer_channels.Message)
+	var stopper threads.StopCombiner
+	errorChan := make(chan error, 20)
 
-	listenThread := threads.NewThread("Listen for Messages", func(ctx context.Context,
-		interrupt <-chan interface{}) error {
-		return c.peerAccountClient.Listen(ctx, incomingMessages, interrupt)
-	})
-	listenThread.SetWait(wait)
-	listenThreadComplete := listenThread.GetCompleteChannel()
+	errorFunc := func(ctx context.Context, err error) {
+		errorChan <- err
+	}
+
+	c.lock.Lock()
+
+	var accountThread *threads.Thread
+	if c.peerChannelsAccountID != nil {
+		accountClient, err := c.createPeerChannelsAccountClient(ctx)
+		if err != nil {
+			c.lock.Unlock()
+			return errors.Wrap(err, "create account client")
+		}
+
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.String("url", accountClient.BaseURL()),
+			logger.String("account", *c.peerChannelsAccountID),
+		}, "Listening for messages on account")
+		accountThread = threads.NewThread("Listen for Account Messages", func(ctx context.Context,
+			interrupt <-chan interface{}) error {
+			return accountClient.Listen(ctx, incomingMessages, interrupt)
+		})
+		accountThread.SetWait(wait)
+		accountThread.SetOnComplete(errorFunc)
+		c.accountThread = accountThread
+		stopper.Add(accountThread)
+	}
+
+	var channelThreads threads.Threads
+	for _, channel := range c.channels {
+		incomingPeerChannels := channel.IncomingPeerChannels()
+		for _, peerChannel := range incomingPeerChannels {
+			if len(peerChannel.ReadToken) == 0 {
+				continue
+			}
+
+			client, err := c.peerChannelsFactory.NewClient(peerChannel.BaseURL)
+			if err != nil {
+				return errors.Wrap(err, "create peer channel client")
+			}
+
+			logger.InfoWithFields(ctx, []logger.Field{
+				logger.String("url", peerChannel.BaseURL),
+				logger.String("channel", peerChannel.ID),
+			}, "Listening for messages on channel")
+			channelThread := threads.NewThread("Listen for Channel Messages", func(ctx context.Context,
+				interrupt <-chan interface{}) error {
+				return client.ChannelListen(ctx, peerChannel.ID, peerChannel.ReadToken,
+					incomingMessages, interrupt)
+			})
+			channelThread.SetWait(wait)
+			channelThread.SetOnComplete(errorFunc)
+			stopper.Add(channelThread)
+
+			c.channelThreads = append(c.channelThreads, channelThread)
+			channelThreads = append(channelThreads, channelThread)
+		}
+	}
+
+	c.lock.Unlock()
 
 	handleThread := threads.NewThreadWithoutStop("Handle Messages",
 		func(ctx context.Context) error {
@@ -258,26 +403,33 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	handleThread.SetWait(wait)
 	handleThreadComplete := handleThread.GetCompleteChannel()
 
-	listenThread.Start(ctx)
+	if accountThread != nil {
+		accountThread.Start(ctx)
+	}
+	for _, channelThread := range channelThreads {
+		channelThread.Start(ctx)
+	}
 	handleThread.Start(ctx)
 
+	var listenErr error
 	select {
 	case <-interrupt:
-		listenThread.Stop(ctx)
+		stopper.Stop(ctx)
 		close(incomingMessages)
 
-	case <-listenThreadComplete:
-		logger.Warn(ctx, "Listen for messages thread stopped : %s", listenThread.Error())
-		listenThread.Stop(ctx)
+	case err := <-errorChan:
+		listenErr = err
+		logger.Warn(ctx, "Thread stopped : %s", err)
+		stopper.Stop(ctx)
 		close(incomingMessages)
 
 	case <-handleThreadComplete:
 		logger.Warn(ctx, "Handle messages thread stopped : %s", handleThread.Error())
-		listenThread.Stop(ctx)
+		stopper.Stop(ctx)
 	}
 
 	wait.Wait()
-	return listenThread.Error()
+	return listenErr
 }
 
 func (c *Client) handleMessages(ctx context.Context, incoming <-chan peer_channels.Message) error {
