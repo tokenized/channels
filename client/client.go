@@ -183,6 +183,10 @@ func (c *Client) CreateRelationshipInitiationChannel(ctx context.Context,
 		},
 	}
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.String("channel", peerChannel.ID),
+	}, "Created incoming public peer channel for relationship initiation")
+
 	hash, key := wallet.GenerateHashKey(c.baseKey, contextID)
 	channel := NewChannel(ChannelTypeRelationshipInitiation, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
@@ -222,6 +226,10 @@ func (c *Client) CreateRelationshipChannel(ctx context.Context,
 		return nil, errors.Wrap(err, "create peer channel")
 	}
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.String("channel", peerChannel.ID),
+	}, "Created incoming peer channel for relationship")
+
 	peerChannels := channels.PeerChannels{
 		{
 			BaseURL:    accountClient.BaseURL(),
@@ -248,7 +256,7 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 		return nil, errors.New("Missing Peer Channels Base URL")
 	}
 
-	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
+	hash, key := wallet.GenerateHashKey(c.baseKey, contextID)
 	publicKey := key.PublicKey()
 
 	channelID := channels.CalculatePeerChannelsServiceChannelID(publicKey)
@@ -263,6 +271,10 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 		},
 	}
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.String("channel", channelID),
+	}, "Calculating incoming peer channel for initial service channel")
+
 	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
 
@@ -273,10 +285,13 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 
 // RegisterRelationshipChannel registers an existing channel with the client.
 func (c *Client) RegisterRelationshipChannel(ctx context.Context,
-	contextID bitcoin.Hash32, peerChannels channels.PeerChannels) (*Channel, error) {
+	channelHash bitcoin.Hash32, peerChannels channels.PeerChannels) (*Channel, error) {
 
-	hash, key := wallet.GenerateHashKey(c.BaseKey(), contextID)
-	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
+	channelKey, err := c.BaseKey().AddHash(channelHash)
+	if err != nil {
+		return nil, errors.Wrap(err, "add hash")
+	}
+	channel := NewChannel(ChannelTypeRelationship, channelHash, channelKey, peerChannels, c.store,
 		c.peerChannelsFactory)
 
 	c.lock.Lock()

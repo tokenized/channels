@@ -165,7 +165,7 @@ func Test_Initiate(t *testing.T) {
 		}
 
 		if err := user1Channel.InitializeRelationship(ctx, channelMessage.Message.Payload(),
-			initiation); err != nil {
+			initiation.Configuration.PublicKey, initiation.Configuration.PeerChannels); err != nil {
 			t.Fatalf("Failed to initialize channel : %s", err)
 		}
 

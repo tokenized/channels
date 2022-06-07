@@ -16,7 +16,7 @@ import (
 func Test_PeerChannels_Create(t *testing.T) {
 	key, _ := bitcoin.GenerateKey(bitcoin.MainNet)
 
-	msg := &CreateChannel{
+	msg := &PeerChannelsCreateChannel{
 		Type: PeerChannelTypePublic,
 	}
 
@@ -60,7 +60,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParsePeerChannel(signedPayload)
+	readMsg, err := ParsePeerChannels(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}
@@ -68,7 +68,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("PeerChannel message : %s", js)
 
-	if _, ok := readMsg.(*CreateChannel); !ok {
+	if _, ok := readMsg.(*PeerChannelsCreateChannel); !ok {
 		t.Errorf("Wrong message type")
 	}
 
@@ -80,7 +80,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 func Test_PeerChannels_Delete(t *testing.T) {
 	key, _ := bitcoin.GenerateKey(bitcoin.MainNet)
 
-	msg := &DeleteChannel{
+	msg := &PeerChannelsDeleteChannel{
 		ID: uuid.New(),
 	}
 
@@ -123,7 +123,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParsePeerChannel(signedPayload)
+	readMsg, err := ParsePeerChannels(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}
@@ -131,7 +131,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("PeerChannel message : %s", js)
 
-	if _, ok := readMsg.(*DeleteChannel); !ok {
+	if _, ok := readMsg.(*PeerChannelsDeleteChannel); !ok {
 		t.Errorf("Wrong message type")
 	}
 

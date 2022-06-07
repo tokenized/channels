@@ -144,17 +144,17 @@ func (c *Channel) SetOutgoingPeerChannels(peerChannels channels.PeerChannels) er
 }
 
 func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Script,
-	initiation *channels.RelationshipInitiation) error {
+	publicKey bitcoin.PublicKey, outgoing channels.PeerChannels) error {
 
 	if c.Type() != ChannelTypeRelationship {
 		return ErrNotRelationship
 	}
 
-	if err := c.outgoing.SetPeerChannels(initiation.Configuration.PeerChannels); err != nil {
+	if err := c.outgoing.SetPeerChannels(outgoing); err != nil {
 		return errors.Wrap(err, "set entity")
 	}
 
-	if err := c.SetExternalPublicKey(initiation.Configuration.PublicKey); err != nil {
+	if err := c.SetExternalPublicKey(publicKey); err != nil {
 		return errors.Wrap(err, "set outgoing public key")
 	}
 
@@ -166,6 +166,11 @@ func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Sc
 	if err := c.MarkMessageIsProcessed(ctx, msg.ID()); err != nil {
 		return errors.Wrap(err, "mark processed")
 	}
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Stringer("channel_hash", c.Hash()),
+		logger.Stringer("public_key", publicKey),
+	}, "Relationship initiated directly")
 
 	return nil
 }
@@ -340,6 +345,11 @@ func (c *Channel) ProcessMessage(ctx context.Context,
 		if err := c.SetExternalPublicKey(configuration.PublicKey); err != nil {
 			return nil, errors.Wrap(err, "set outgoing public key")
 		}
+
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.Stringer("channel_hash", c.Hash()),
+			logger.Stringer("public_key", configuration.PublicKey),
+		}, "Relationship initiated via response")
 	}
 
 	return msg, nil

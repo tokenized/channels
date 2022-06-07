@@ -147,5 +147,9 @@ func parse(payload envelope.Data) (Writer, error) {
 		return ParseReject(payload)
 	}
 
+	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDPeerChannels) {
+		return ParsePeerChannels(payload)
+	}
+
 	return nil, errors.Wrap(ErrUnsupportedProtocol, fmt.Sprintf("0x%x", payload.ProtocolIDs[0]))
 }

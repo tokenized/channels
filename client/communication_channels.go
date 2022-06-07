@@ -209,6 +209,9 @@ func (c *CommunicationChannel) getMessage(ctx context.Context, id uint64) (*Mess
 	}
 
 	offset := uint32(id - uint64(c.loadedOffset))
+	if offset >= uint32(len(c.messages)) {
+		return nil, ErrMessageNotFound
+	}
 	return c.messages[offset], nil
 }
 
@@ -274,6 +277,10 @@ func sendMessage(ctx context.Context, peerChannelsFactory *peer_channels.Factory
 			}, "Failed to post peer channel message : %s", err)
 			lastErr = err
 		} else {
+			logger.InfoWithFields(ctx, []logger.Field{
+				logger.String("base_url", peerChannel.BaseURL),
+				logger.String("channel", peerChannel.ID),
+			}, "Posted peer channel message")
 			success = true
 		}
 	}

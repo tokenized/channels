@@ -17,8 +17,9 @@ var (
 	PeerChannelsVersion    = uint8(0)
 
 	PeerChannelsMessageTypeInvalid       = PeerChannelsMessageType(0)
-	PeerChannelsMessageTypeCreateChannel = PeerChannelsMessageType(1)
-	PeerChannelsMessageTypeDeleteChannel = PeerChannelsMessageType(2)
+	PeerChannelsMessageTypeAccount       = PeerChannelsMessageType(1)
+	PeerChannelsMessageTypeCreateChannel = PeerChannelsMessageType(2)
+	PeerChannelsMessageTypeDeleteChannel = PeerChannelsMessageType(3)
 
 	PeerChannelTypeStandard = PeerChannelType(0)
 	PeerChannelTypePublic   = PeerChannelType(1)
@@ -48,20 +49,47 @@ func CalculatePeerChannelsServiceChannelToken(publicKey bitcoin.PublicKey) strin
 	return token.String()
 }
 
-type CreateChannel struct {
+type PeerChannelsAccount struct {
+	ID    string `bsor:"1" json:"id"`
+	Token string `bsor:"2" json:"token"`
+}
+
+func (*PeerChannelsAccount) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDPeerChannels
+}
+
+func (m *PeerChannelsAccount) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(PeerChannelsVersion))}
+
+	// Message type
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeAccount)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDPeerChannels}, payload}, nil
+}
+
+type PeerChannelsCreateChannel struct {
 	Type PeerChannelType `bsor:"1" json:"type"`
 }
 
-func (*CreateChannel) ProtocolID() envelope.ProtocolID {
+func (*PeerChannelsCreateChannel) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDPeerChannels
 }
 
-func (m *CreateChannel) Write() (envelope.Data, error) {
+func (m *PeerChannelsCreateChannel) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(PeerChannelsVersion))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeCreateChannel)))
+	payload = append(payload,
+		bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeCreateChannel)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
@@ -73,20 +101,21 @@ func (m *CreateChannel) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDPeerChannels}, payload}, nil
 }
 
-type DeleteChannel struct {
+type PeerChannelsDeleteChannel struct {
 	ID uuid.UUID `bsor:"1" json:"id"`
 }
 
-func (*DeleteChannel) ProtocolID() envelope.ProtocolID {
+func (*PeerChannelsDeleteChannel) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDPeerChannels
 }
 
-func (m *DeleteChannel) Write() (envelope.Data, error) {
+func (m *PeerChannelsDeleteChannel) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(PeerChannelsVersion))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeDeleteChannel)))
+	payload = append(payload,
+		bitcoin.PushNumberScriptItem(int64(PeerChannelsMessageTypeDeleteChannel)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
@@ -98,7 +127,7 @@ func (m *DeleteChannel) Write() (envelope.Data, error) {
 	return envelope.Data{envelope.ProtocolIDs{ProtocolIDPeerChannels}, payload}, nil
 }
 
-func ParsePeerChannel(payload envelope.Data) (Message, error) {
+func ParsePeerChannels(payload envelope.Data) (Writer, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
@@ -141,12 +170,14 @@ func ParsePeerChannel(payload envelope.Data) (Message, error) {
 	return result, nil
 }
 
-func PeerChannelsMessageForType(messageType PeerChannelsMessageType) Message {
+func PeerChannelsMessageForType(messageType PeerChannelsMessageType) Writer {
 	switch messageType {
+	case PeerChannelsMessageTypeAccount:
+		return &PeerChannelsAccount{}
 	case PeerChannelsMessageTypeCreateChannel:
-		return &CreateChannel{}
+		return &PeerChannelsCreateChannel{}
 	case PeerChannelsMessageTypeDeleteChannel:
-		return &DeleteChannel{}
+		return &PeerChannelsDeleteChannel{}
 	case PeerChannelsMessageTypeInvalid:
 		return nil
 	default:
@@ -156,9 +187,11 @@ func PeerChannelsMessageForType(messageType PeerChannelsMessageType) Message {
 
 func PeerChannelsMessageTypeFor(message Message) PeerChannelsMessageType {
 	switch message.(type) {
-	case *CreateChannel:
+	case *PeerChannelsAccount:
+		return PeerChannelsMessageTypeAccount
+	case *PeerChannelsCreateChannel:
 		return PeerChannelsMessageTypeCreateChannel
-	case *DeleteChannel:
+	case *PeerChannelsDeleteChannel:
 		return PeerChannelsMessageTypeDeleteChannel
 	default:
 		return PeerChannelsMessageTypeInvalid
@@ -197,6 +230,8 @@ func (v *PeerChannelsMessageType) UnmarshalText(text []byte) error {
 
 func (v *PeerChannelsMessageType) SetString(s string) error {
 	switch s {
+	case "account":
+		*v = PeerChannelsMessageTypeAccount
 	case "create":
 		*v = PeerChannelsMessageTypeCreateChannel
 	case "delete":
@@ -211,6 +246,8 @@ func (v *PeerChannelsMessageType) SetString(s string) error {
 
 func (v PeerChannelsMessageType) String() string {
 	switch v {
+	case PeerChannelsMessageTypeAccount:
+		return "account"
 	case PeerChannelsMessageTypeCreateChannel:
 		return "create"
 	case PeerChannelsMessageTypeDeleteChannel:

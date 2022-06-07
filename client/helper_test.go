@@ -59,7 +59,8 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	}
 
 	if err := channelA.InitializeRelationship(ctx, initBMessage.Payload(),
-		userBInitiation); err != nil {
+		userBInitiation.Configuration.PublicKey,
+		userBInitiation.Configuration.PeerChannels); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 
@@ -78,7 +79,8 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	}
 
 	if err := channelB.InitializeRelationship(ctx, initAMessage.Payload(),
-		userAInitiation); err != nil {
+		userAInitiation.Configuration.PublicKey,
+		userAInitiation.Configuration.PeerChannels); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 
