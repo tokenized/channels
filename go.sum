@@ -78,8 +78,8 @@ github.com/tokenized/envelope v1.0.1-0.20220520031403-63dd1983ccd8/go.mod h1:jj3
 github.com/tokenized/pkg v0.2.0/go.mod h1:QJIVlpGu5AUytmnjmMGEZGJo59LUOG4xpi/PUN9RLLg=
 github.com/tokenized/pkg v0.4.1-0.20220520003654-d682cbe31551 h1:w19LWiiaxiQD9Vov0Yn1egRkPo6FVlIfeNxgxFt7Odo=
 github.com/tokenized/pkg v0.4.1-0.20220520003654-d682cbe31551/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
-github.com/tokenized/pkg v0.4.1-0.20220607012639-38c000124ae0 h1:n/iPCNAgJHhYDxVd0rR+XAfPWKf7JveFtOoahuNdPDc=
-github.com/tokenized/pkg v0.4.1-0.20220607012639-38c000124ae0/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
+github.com/tokenized/pkg v0.4.1-0.20220607225724-be29b1203acd h1:YHNFWFNU9STIOQLUI30rn5g9x7ZRTvG0EMjnIAbM9hA=
+github.com/tokenized/pkg v0.4.1-0.20220607225724-be29b1203acd/go.mod h1:/ZeiNBa1Kd1eq1KqFtzcu2cbq1RB6CzysRBIZ4uSHkg=
 github.com/tyler-smith/go-bip32 v0.0.0-20170922074101-2c9cfd177564 h1:NXXyQVeRVLK8Xu27/hkkjwVOZLk5v4ZBEvvMtqMqznM=
 github.com/tyler-smith/go-bip32 v0.0.0-20170922074101-2c9cfd177564/go.mod h1:0/YuQQF676+d4CMNclTqGUam1EDwz0B8o03K9pQqA3c=
 go.uber.org/atomic v1.6.0/go.mod h1:sABNBOSYdrvTF6hTgEIbc7YasKWGhgEQZyfxyTvoXHQ=

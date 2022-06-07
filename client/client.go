@@ -370,7 +370,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 		}, "Listening for messages on account")
 		accountThread = threads.NewThread("Listen for Account Messages", func(ctx context.Context,
 			interrupt <-chan interface{}) error {
-			return accountClient.Listen(ctx, incomingMessages, interrupt)
+			return accountClient.Listen(ctx, true, incomingMessages, interrupt)
 		})
 		accountThread.SetWait(wait)
 		accountThread.SetOnComplete(errorFunc)
@@ -397,7 +397,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 			}, "Listening for messages on channel")
 			channelThread := threads.NewThread("Listen for Channel Messages", func(ctx context.Context,
 				interrupt <-chan interface{}) error {
-				return client.ChannelListen(ctx, peerChannel.ID, peerChannel.ReadToken,
+				return client.ChannelListen(ctx, peerChannel.ID, peerChannel.ReadToken, true,
 					incomingMessages, interrupt)
 			})
 			channelThread.SetWait(wait)
