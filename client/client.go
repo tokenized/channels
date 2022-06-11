@@ -29,6 +29,7 @@ var (
 	ErrMissingRelationship = errors.New("Missing Relationship")
 	ErrWrongPublicKey      = errors.New("Wrong Public Key")
 	ErrMessageNotFound     = errors.New("Message Not Found")
+	ErrWrongMessageID      = errors.New("Wrong Message ID")
 
 	endian = binary.LittleEndian
 )
@@ -260,7 +261,7 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 	publicKey := key.PublicKey()
 
 	channelID := channels.CalculatePeerChannelsServiceChannelID(publicKey)
-	channelToken := channels.CalculatePeerChannelsServiceChannelID(publicKey)
+	channelToken := channels.CalculatePeerChannelsServiceChannelToken(publicKey)
 
 	peerChannels := channels.PeerChannels{
 		{
@@ -345,11 +346,10 @@ func (c *Client) CloseIncomingChannel(ctx context.Context) {
 }
 
 func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
-	wait := &sync.WaitGroup{}
-	incomingMessages := make(chan peer_channels.Message)
+	var wait sync.WaitGroup
+	incomingMessages := make(chan peer_channels.Message, 100)
 	var stopper threads.StopCombiner
 	errorChan := make(chan error, 20)
-
 	errorFunc := func(ctx context.Context, err error) {
 		errorChan <- err
 	}
@@ -372,7 +372,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 			interrupt <-chan interface{}) error {
 			return accountClient.Listen(ctx, true, incomingMessages, interrupt)
 		})
-		accountThread.SetWait(wait)
+		accountThread.SetWait(&wait)
 		accountThread.SetOnComplete(errorFunc)
 		c.accountThread = accountThread
 		stopper.Add(accountThread)
@@ -388,6 +388,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 
 			client, err := c.peerChannelsFactory.NewClient(peerChannel.BaseURL)
 			if err != nil {
+				c.lock.Unlock()
 				return errors.Wrap(err, "create peer channel client")
 			}
 
@@ -400,7 +401,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 				return client.ChannelListen(ctx, peerChannel.ID, peerChannel.ReadToken, true,
 					incomingMessages, interrupt)
 			})
-			channelThread.SetWait(wait)
+			channelThread.SetWait(&wait)
 			channelThread.SetOnComplete(errorFunc)
 			stopper.Add(channelThread)
 
@@ -411,11 +412,12 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 
 	c.lock.Unlock()
 
+	var handleWait sync.WaitGroup
 	handleThread := threads.NewThreadWithoutStop("Handle Messages",
 		func(ctx context.Context) error {
 			return c.handleMessages(ctx, incomingMessages)
 		})
-	handleThread.SetWait(wait)
+	handleThread.SetWait(&handleWait)
 	handleThreadComplete := handleThread.GetCompleteChannel()
 
 	if accountThread != nil {
@@ -429,21 +431,19 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	var listenErr error
 	select {
 	case <-interrupt:
-		stopper.Stop(ctx)
-		close(incomingMessages)
 
 	case err := <-errorChan:
 		listenErr = err
-		logger.Warn(ctx, "Thread stopped : %s", err)
-		stopper.Stop(ctx)
-		close(incomingMessages)
+		logger.Warn(ctx, "One of the listen threads stopped : %s", err)
 
 	case <-handleThreadComplete:
 		logger.Warn(ctx, "Handle messages thread stopped : %s", handleThread.Error())
-		stopper.Stop(ctx)
 	}
 
+	stopper.Stop(ctx)
 	wait.Wait()
+	close(incomingMessages)
+	handleWait.Wait()
 	return listenErr
 }
 
@@ -491,6 +491,9 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 		return nil
 	}
 
+	ctx = logger.ContextWithLogFields(ctx, logger.String("channel_id", message.ChannelID),
+		logger.Stringer("channel_hash", channel.Hash()))
+
 	if err := c.processMessage(ctx, channel, message); err != nil {
 		logger.WarnWithFields(ctx, []logger.Field{
 			logger.String("channel", message.ChannelID),
@@ -499,6 +502,57 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 			logger.Stringer("message_hash", message.Hash()),
 		}, "Process message : %s", err)
 		return nil
+	}
+
+	peerChannel := channel.GetIncomingPeerChannel(message.ChannelID)
+	if peerChannel == nil {
+		return errors.New("Peer Channel Not Found")
+	}
+
+	if len(peerChannel.ReadToken) > 0 {
+		client, err := c.peerChannelsFactory.NewClient(peerChannel.BaseURL)
+		if err != nil {
+			return errors.Wrap(err, "create peer channels client")
+		}
+
+		if err := client.MarkMessages(ctx, peerChannel.ID, peerChannel.ReadToken, message.Sequence,
+			true, true); err != nil {
+			return errors.Wrap(err, "mark message read channel")
+		}
+
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.String("channel", message.ChannelID),
+			logger.Uint32("sequence", message.Sequence),
+			logger.Stringer("received", message.Received),
+		}, "Marked message as read with channel")
+	} else {
+		c.lock.Lock()
+
+		// Assume the channel is under the account
+		if c.peerChannelsAccountID == nil || c.peerChannelsAccountToken == nil {
+			c.lock.Unlock()
+			return errors.New("No account or token to mark message as read")
+		}
+
+		client, err := c.createPeerChannelsClient(ctx)
+		if err != nil {
+			c.lock.Unlock()
+			return errors.Wrap(err, "create peer channels client")
+		}
+
+		if err := client.MarkMessages(ctx, peerChannel.ID, *c.peerChannelsAccountToken,
+			message.Sequence, true, true); err != nil {
+			c.lock.Unlock()
+			return errors.Wrap(err, "mark message read account")
+		}
+
+		c.lock.Unlock()
+
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.String("channel", message.ChannelID),
+			logger.Uint32("sequence", message.Sequence),
+			logger.Stringer("received", message.Received),
+		}, "Marked message as read with account")
 	}
 
 	return nil
@@ -527,26 +581,35 @@ func (c *Client) processMessage(ctx context.Context, channel *Channel,
 }
 
 func (c *Client) Save(ctx context.Context) error {
-	path := fmt.Sprintf("%s/%s", clientsPath, c.BaseKey().PublicKey())
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	publicKey := c.baseKey.PublicKey()
+	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("client", publicKey))
+	path := fmt.Sprintf("%s/%s", clientsPath, publicKey)
 
 	if err := storage.StreamWrite(ctx, c.store, path, c); err != nil {
 		return errors.Wrap(err, "write")
 	}
-
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	logger.Info(ctx, "Saved channels client")
 
 	for i, channel := range c.channels {
-		if err := channel.Save(ctx); err != nil {
+		channelCtx := logger.ContextWithLogFields(ctx,
+			logger.Stringer("channel_hash", channel.Hash()))
+		if err := channel.Save(channelCtx); err != nil {
 			return errors.Wrapf(err, "channel %d: %s", i, channel.Hash())
 		}
+		logger.Info(channelCtx, "Saved channel")
 	}
 
 	return nil
 }
 
 func (c *Client) Load(ctx context.Context) error {
-	path := fmt.Sprintf("%s/%s", clientsPath, c.BaseKey().PublicKey())
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	path := fmt.Sprintf("%s/%s", clientsPath, c.baseKey.PublicKey())
 
 	if err := storage.StreamRead(ctx, c.store, path, c); err != nil {
 		if errors.Cause(err) == storage.ErrNotFound {
@@ -558,7 +621,7 @@ func (c *Client) Load(ctx context.Context) error {
 	// Load channels
 	c.channels = make(Channels, len(c.channelHashes))
 	for i, channelHash := range c.channelHashes {
-		channelKey, err := c.BaseKey().AddHash(channelHash)
+		channelKey, err := c.baseKey.AddHash(channelHash)
 		if err != nil {
 			return errors.Wrap(err, "add hash")
 		}
@@ -575,9 +638,6 @@ func (c *Client) Load(ctx context.Context) error {
 }
 
 func (c *Client) Serialize(w io.Writer) error {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
 	if err := binary.Write(w, endian, clientsVersion); err != nil {
 		return errors.Wrap(err, "version")
 	}
@@ -597,9 +657,6 @@ func (c *Client) Serialize(w io.Writer) error {
 }
 
 func (c *Client) Deserialize(r io.Reader) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
 	var version uint8
 	if err := binary.Read(r, endian, &version); err != nil {
 		return errors.Wrap(err, "version")

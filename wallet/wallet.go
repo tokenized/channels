@@ -332,6 +332,15 @@ func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
 	return result, nil
 }
 
+func (w *Wallet) AddTxWithoutContext(ctx context.Context, tx *wire.MsgTx) error {
+	_, contextID, err := w.FindKeys(ctx, tx)
+	if err != nil {
+		return errors.Wrap(err, "find keys")
+	}
+
+	return w.AddTx(ctx, *contextID, tx)
+}
+
 func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.MsgTx) error {
 	txid := *tx.TxHash()
 
@@ -350,6 +359,11 @@ func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.M
 	}
 	if walletTx != nil { // already added tx
 		if walletTx.AddContextID(contextID) {
+			logger.InfoWithFields(ctx, []logger.Field{
+				logger.Stringer("txid", txid),
+				logger.Stringer("context_id", contextID),
+			}, "Added context id to existing tx")
+
 			if err := walletTx.save(ctx, w.store); err != nil {
 				return errors.Wrapf(err, "save %s", txid)
 			}
@@ -434,7 +448,8 @@ func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.M
 
 	logger.InfoWithFields(ctx, []logger.Field{
 		logger.Stringer("txid", tx.TxHash()),
-	}, "Added tx")
+		logger.Stringer("context_id", contextID),
+	}, "Added new tx")
 
 	return nil
 }

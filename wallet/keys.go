@@ -11,6 +11,7 @@ import (
 
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/storage"
+	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
 )
@@ -76,6 +77,29 @@ func (w *Wallet) GetKeyForLockingScript(script bitcoin.Script) *Key {
 	}
 
 	return nil
+}
+
+func (w *Wallet) FindKeys(ctx context.Context, tx *wire.MsgTx) (Keys, *bitcoin.Hash32, error) {
+	w.keysLock.Lock()
+	defer w.keysLock.Unlock()
+
+	for _, txout := range tx.TxOut {
+		if txout.Value == 0 {
+			continue
+		}
+
+		for contextID, keys := range w.keys {
+			for _, key := range keys {
+				if key.LockingScript.Equal(txout.LockingScript) {
+					newKeys := make(Keys, len(keys))
+					copy(newKeys, keys)
+					return newKeys, &contextID, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil, ErrContextIDNotFound
 }
 
 // GenerateKey generates a new hash and derives a new key from the base key and the hash.

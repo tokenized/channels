@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/storage"
@@ -96,7 +97,12 @@ func Test_Messages_Load(t *testing.T) {
 				script := make(bitcoin.Script, 25)
 				rand.Read(script)
 
-				message, err := channel.newMessageWithPayload(ctx, script)
+				wrap := &channels.WrappedMessage{
+					MessageID: &channels.MessageID{
+						MessageID: uint64(i),
+					},
+				}
+				message, err := channel.AddMessage(ctx, script, wrap)
 				if err != nil {
 					t.Fatalf("Failed to add message : %s", err)
 				}
@@ -121,14 +127,14 @@ func Test_Messages_Load(t *testing.T) {
 					test.total)
 			}
 
-			t.Logf("Loaded %d messages", len(readChannel.messages))
+			t.Logf("Loaded %d messages", len(readChannel.sequencedMessages))
 
-			if len(readChannel.messages) < messagesPerFile &&
-				len(readChannel.messages) < test.total {
+			if len(readChannel.sequencedMessages) < messagesPerFile &&
+				len(readChannel.sequencedMessages) < test.total {
 				t.Errorf("Not enough messages loaded")
 			}
 
-			currentID := uint64(test.total - len(readChannel.messages))
+			currentID := uint64(test.total - len(readChannel.sequencedMessages))
 
 			t.Logf("First loaded message : %d", currentID)
 
@@ -162,7 +168,7 @@ func Test_Messages_Load(t *testing.T) {
 			}
 
 			verifiedCount := 0
-			for _, message := range readChannel.messages {
+			for _, message := range readChannel.sequencedMessages {
 				if message.ID() != currentID {
 					t.Errorf("Wrong id : got %d, want %d", message.ID(), currentID)
 				}

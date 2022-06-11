@@ -1,0 +1,123 @@
+package sample_client
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/pkg/errors"
+	channelsClient "github.com/tokenized/channels/client"
+	"github.com/tokenized/channels/wallet"
+	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/logger"
+	"github.com/tokenized/pkg/peer_channels"
+	"github.com/tokenized/pkg/storage"
+	"github.com/tokenized/pkg/threads"
+	spyNodeClient "github.com/tokenized/spynode/pkg/client"
+)
+
+type Client struct {
+	ChannelsClient *channelsClient.Client
+	Wallet         *wallet.Wallet
+	store          storage.StreamStorage
+
+	spyNodeClient spyNodeClient.Client
+
+	nextSpyNodeMessageID uint64
+}
+
+var (
+	clientHash, _ = bitcoin.NewHash32FromStr("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	walletHash, _ = bitcoin.NewHash32FromStr("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
+)
+
+func NewClient(key bitcoin.Key, store storage.StreamStorage,
+	peerChannelsFactory *peer_channels.Factory, spyNodeClient spyNodeClient.Client) *Client {
+
+	clientKey, err := key.AddHash(*clientHash)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to generate client key : %s", err))
+	}
+
+	walletKey, err := key.AddHash(*walletHash)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to generate wallet key : %s", err))
+	}
+
+	return &Client{
+		ChannelsClient: channelsClient.NewClient(clientKey, store, peerChannelsFactory),
+		Wallet: wallet.NewWallet(wallet.DefaultConfig(), store, spyNodeClient, spyNodeClient,
+			walletKey),
+		spyNodeClient: spyNodeClient,
+		store:         store,
+	}
+}
+
+func (c *Client) Load(ctx context.Context) error {
+	if err := c.ChannelsClient.Load(ctx); err != nil {
+		return errors.Wrap(err, "channels client")
+	}
+
+	if err := c.Wallet.Load(ctx); err != nil {
+		return errors.Wrap(err, "wallet")
+	}
+
+	return nil
+}
+
+func (c *Client) Save(ctx context.Context) error {
+	if err := c.ChannelsClient.Save(ctx); err != nil {
+		return errors.Wrap(err, "channels client")
+	}
+
+	if err := c.Wallet.Save(ctx); err != nil {
+		return errors.Wrap(err, "wallet")
+	}
+
+	return nil
+}
+
+func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
+	var wait sync.WaitGroup
+
+	clientThread := threads.NewThread("Client", c.ChannelsClient.Run)
+	clientThread.SetWait(&wait)
+	clientComplete := clientThread.GetCompleteChannel()
+
+	incomingMessages := c.ChannelsClient.GetIncomingChannel(ctx)
+	incomingThread := threads.NewThreadWithoutStop("Incoming",
+		func(ctx context.Context) error {
+			for msg := range incomingMessages {
+				if err := c.handleMessage(ctx, msg); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+	incomingThread.SetWait(&wait)
+	incomingComplete := incomingThread.GetCompleteChannel()
+
+	clientThread.Start(ctx)
+	incomingThread.Start(ctx)
+
+	select {
+	case <-interrupt:
+
+	case <-clientComplete:
+		logger.Error(ctx, "Client thread completed : %s", clientThread.Error())
+
+	case <-incomingComplete:
+		logger.Error(ctx, "Incoming thread completed : %s", incomingThread.Error())
+	}
+
+	clientThread.Stop(ctx)
+	c.ChannelsClient.CloseIncomingChannel(ctx)
+
+	wait.Wait()
+	return nil
+}
+
+func (c *Client) handleMessage(ctx context.Context, msg channelsClient.ChannelMessage) error {
+	return nil
+}

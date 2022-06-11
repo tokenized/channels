@@ -100,7 +100,9 @@ func (tx *Tx) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.Merk
 	return nil
 }
 
-func fetchTx(ctx context.Context, store storage.StreamStorage, txid bitcoin.Hash32) (*Tx, error) {
+func fetchTx(ctx context.Context, store storage.StreamReadWriter,
+	txid bitcoin.Hash32) (*Tx, error) {
+
 	tx := &Tx{}
 
 	path := fmt.Sprintf("%s/%s", txsPath, txid)
@@ -114,7 +116,7 @@ func fetchTx(ctx context.Context, store storage.StreamStorage, txid bitcoin.Hash
 	return tx, nil
 }
 
-func (tx *Tx) save(ctx context.Context, store storage.StreamStorage) error {
+func (tx *Tx) save(ctx context.Context, store storage.StreamReadWriter) error {
 	path := fmt.Sprintf("%s/%s", txsPath, tx.Tx.TxHash())
 	if err := storage.StreamWrite(ctx, store, path, tx); err != nil {
 		return errors.Wrap(err, "write")

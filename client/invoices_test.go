@@ -38,6 +38,7 @@ func Test_Invoice(t *testing.T) {
 	wait.Add(1)
 	go func() {
 		merchant.Run(ctx, interruptA)
+		t.Logf("Merchant client finished")
 		wait.Done()
 	}()
 
@@ -45,6 +46,7 @@ func Test_Invoice(t *testing.T) {
 	wait.Add(1)
 	go func() {
 		buyer.Run(ctx, interruptB)
+		t.Logf("Buyer client finished")
 		wait.Done()
 	}()
 
@@ -123,8 +125,6 @@ func Test_Invoice(t *testing.T) {
 
 	/**************************************** Send Payment ****************************************/
 	/**********************************************************************************************/
-
-	time.Sleep(time.Millisecond * 250)
 
 	buyerMessages, err := buyer.GetUnprocessedMessages(ctx)
 	if err != nil {

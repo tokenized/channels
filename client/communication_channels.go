@@ -28,7 +28,7 @@ type CommunicationChannel struct {
 	loadedOffset      int
 	savedOffset       uint32
 	messageCount      uint32
-	messages          Messages
+	sequencedMessages Messages
 
 	basePath string
 	store    storage.StreamReadWriter
@@ -101,7 +101,7 @@ func (c *CommunicationChannel) GetUnprocessedMessages(ctx context.Context) (Mess
 	defer c.lock.Unlock()
 
 	var result Messages
-	for _, message := range c.messages {
+	for _, message := range c.sequencedMessages {
 		if message.IsProcessed() {
 			continue
 		}
@@ -128,6 +128,10 @@ func (c *CommunicationChannel) MarkMessageIsProcessed(ctx context.Context, id ui
 		return errors.Wrap(err, "update lowest unprocessed")
 	}
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Uint64("message_id", id),
+	}, "Marked message is processed")
+
 	return nil
 }
 
@@ -141,6 +145,10 @@ func (c *CommunicationChannel) SetMessageIsAwaitingResponse(ctx context.Context,
 	}
 
 	message.setIsAwaitingResponse()
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Uint64("message_id", id),
+	}, "Set message is awaiting response")
 
 	if err := c.updateLowestUnprocessed(ctx, id); err != nil {
 		return errors.Wrap(err, "update lowest unprocessed")
@@ -160,6 +168,10 @@ func (c *CommunicationChannel) ClearMessageIsAwaitingResponse(ctx context.Contex
 
 	message.clearIsAwaitingResponse()
 
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Uint64("message_id", id),
+	}, "Clear message is awaiting response")
+
 	if err := c.updateLowestUnprocessed(ctx, id); err != nil {
 		return errors.Wrap(err, "update lowest unprocessed")
 	}
@@ -170,14 +182,14 @@ func (c *CommunicationChannel) ClearMessageIsAwaitingResponse(ctx context.Contex
 func (c *CommunicationChannel) updateLowestUnprocessed(ctx context.Context, id uint64) error {
 	offset := id - uint64(c.loadedOffset)
 	current := uint32(id)
-	count := uint64(len(c.messages))
+	count := uint64(len(c.sequencedMessages))
 
 	if current != c.lowestUnprocessed {
 		return nil
 	}
 
 	for {
-		message := c.messages[offset]
+		message := c.sequencedMessages[offset]
 		if !message.IsProcessed() || message.IsAwaitingResponse() {
 			return nil
 		}
@@ -194,33 +206,64 @@ func (c *CommunicationChannel) updateLowestUnprocessed(ctx context.Context, id u
 
 func (c *CommunicationChannel) getMessage(ctx context.Context, id uint64) (*Message, error) {
 	if id < uint64(c.loadedOffset) {
-		messages, err := loadMessageFile(ctx, c.store, c.basePath, int(id))
+		sequencedMessages, err := loadSequencedMessageFile(ctx, c.store, c.basePath, int(id))
 		if err != nil {
 			return nil, errors.Wrapf(err, "load file %d", id)
 		}
 
-		offset := id - messages[0].ID()
+		offset := id - sequencedMessages[0].ID()
 
-		if err := saveMessageFile(ctx, c.store, c.basePath, messages); err != nil {
+		if err := saveSequencedMessageFile(ctx, c.store, c.basePath, sequencedMessages); err != nil {
 			return nil, errors.Wrapf(err, "save file %d", id)
 		}
 
-		return messages[offset], nil
+		return sequencedMessages[offset], nil
 	}
 
 	offset := uint32(id - uint64(c.loadedOffset))
-	if offset >= uint32(len(c.messages)) {
+	if offset >= uint32(len(c.sequencedMessages)) {
 		return nil, ErrMessageNotFound
 	}
-	return c.messages[offset], nil
+	return c.sequencedMessages[offset], nil
+}
+
+func (c *CommunicationChannel) AddMessage(ctx context.Context, payload bitcoin.Script,
+	wrap *channels.WrappedMessage) (*Message, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if wrap.MessageID != nil {
+		nextID := uint64(c.loadedOffset + len(c.sequencedMessages))
+		if wrap.MessageID.MessageID != nextID {
+			return nil, errors.Wrapf(ErrWrongMessageID, "got %d, want %d", wrap.MessageID.MessageID,
+				nextID)
+		}
+
+		msg := &Message{
+			id:        nextID,
+			payload:   payload,
+			timestamp: channels.Now(),
+		}
+		c.sequencedMessages = append(c.sequencedMessages, msg)
+
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.Uint64("message_id", msg.ID()),
+			logger.Int("bytes", len(payload)),
+		}, "New sequenced message")
+
+		return msg, nil
+	}
+
+	return nil, errors.New("Unsequenced Messages Not Supported")
+
 }
 
 func (c *CommunicationChannel) newMessage(ctx context.Context) (*Message, error) {
 	msg := &Message{
-		id: uint64(c.loadedOffset + len(c.messages)),
+		id: uint64(c.loadedOffset + len(c.sequencedMessages)),
 	}
 
-	c.messages = append(c.messages, msg)
+	c.sequencedMessages = append(c.sequencedMessages, msg)
 
 	logger.InfoWithFields(ctx, []logger.Field{
 		logger.Uint64("message_id", msg.ID()),
@@ -228,22 +271,22 @@ func (c *CommunicationChannel) newMessage(ctx context.Context) (*Message, error)
 	return msg, nil
 }
 
-func (c *CommunicationChannel) newMessageWithPayload(ctx context.Context,
-	payload bitcoin.Script) (*Message, error) {
-	msg := &Message{
-		id:        uint64(c.loadedOffset + len(c.messages)),
-		payload:   payload,
-		timestamp: channels.Now(),
-	}
+// func (c *CommunicationChannel) newMessageWithPayload(ctx context.Context,
+// 	payload bitcoin.Script) (*Message, error) {
+// 	msg := &Message{
+// 		id:        uint64(c.loadedOffset + len(c.sequencedMessages)),
+// 		payload:   payload,
+// 		timestamp: channels.Now(),
+// 	}
 
-	c.messages = append(c.messages, msg)
+// 	c.sequencedMessages = append(c.sequencedMessages, msg)
 
-	logger.InfoWithFields(ctx, []logger.Field{
-		logger.Uint64("message_id", msg.ID()),
-		logger.Int("bytes", len(payload)),
-	}, "New message with payload")
-	return msg, nil
-}
+// 	logger.InfoWithFields(ctx, []logger.Field{
+// 		logger.Uint64("message_id", msg.ID()),
+// 		logger.Int("bytes", len(payload)),
+// 	}, "New message with payload")
+// 	return msg, nil
+// }
 
 func (c *CommunicationChannel) sendMessage(ctx context.Context,
 	peerChannelsFactory *peer_channels.Factory, message *Message) error {
@@ -301,23 +344,23 @@ func (c *CommunicationChannel) Save(ctx context.Context) error {
 		return errors.Wrap(err, "write")
 	}
 
-	if err := c.saveMessages(ctx); err != nil {
-		return errors.Wrap(err, "messages")
+	if err := c.saveSequencedMessages(ctx); err != nil {
+		return errors.Wrap(err, "sequenced messages")
 	}
 
 	return nil
 }
 
-func (c *CommunicationChannel) saveMessages(ctx context.Context) error {
+func (c *CommunicationChannel) saveSequencedMessages(ctx context.Context) error {
 	offset := int(c.savedOffset)
 	mod := offset % messagesPerFile
 	if mod != 0 {
 		offset -= mod
 	}
-	endOffset := c.loadedOffset + len(c.messages)
+	endOffset := c.loadedOffset + len(c.sequencedMessages)
 
 	for ; offset < endOffset; offset += messagesPerFile {
-		path := fmt.Sprintf("%s/%08x", c.basePath, offset/messagesPerFile)
+		path := fmt.Sprintf("%s/sequenced/%08x", c.basePath, offset/messagesPerFile)
 
 		start := offset - c.loadedOffset
 		end := start + messagesPerFile
@@ -325,7 +368,7 @@ func (c *CommunicationChannel) saveMessages(ctx context.Context) error {
 			end = endOffset
 		}
 
-		if err := storage.StreamWrite(ctx, c.store, path, c.messages[start:end]); err != nil {
+		if err := storage.StreamWrite(ctx, c.store, path, c.sequencedMessages[start:end]); err != nil {
 			return errors.Wrapf(err, "write %d-%d", start, end)
 		}
 	}
@@ -334,22 +377,22 @@ func (c *CommunicationChannel) saveMessages(ctx context.Context) error {
 	return nil
 }
 
-func saveMessageFile(ctx context.Context, store storage.StreamWriter, basePath string,
-	messages Messages) error {
+func saveSequencedMessageFile(ctx context.Context, store storage.StreamWriter, basePath string,
+	sequencedMessages Messages) error {
 
-	if len(messages) == 0 {
+	if len(sequencedMessages) == 0 {
 		return errors.New("Messages empty")
 	}
 
-	offset := int(messages[0].ID())
+	offset := int(sequencedMessages[0].ID())
 	if offset%messagesPerFile != 0 {
 		return fmt.Errorf("Messages don't start at start of file: %d", offset)
 	}
 
-	path := fmt.Sprintf("%s/%08x", basePath, offset/messagesPerFile)
+	path := fmt.Sprintf("%s/sequenced/%08x", basePath, offset/messagesPerFile)
 
-	if err := storage.StreamWrite(ctx, store, path, messages); err != nil {
-		return errors.Wrapf(err, "write %d-%d", offset, offset+len(messages)-1)
+	if err := storage.StreamWrite(ctx, store, path, sequencedMessages); err != nil {
+		return errors.Wrapf(err, "write %d-%d", offset, offset+len(sequencedMessages)-1)
 	}
 
 	return nil
@@ -369,14 +412,14 @@ func (c *CommunicationChannel) Load(ctx context.Context) error {
 		offset = int(c.messageCount) - messagesPerFile
 	}
 
-	if err := c.loadMessages(ctx, offset); err != nil {
-		return errors.Wrap(err, "messages")
+	if err := c.loadSequencedMessages(ctx, offset); err != nil {
+		return errors.Wrap(err, "sequenced messages")
 	}
 
 	return nil
 }
 
-func (c *CommunicationChannel) loadMessages(ctx context.Context, offset int) error {
+func (c *CommunicationChannel) loadSequencedMessages(ctx context.Context, offset int) error {
 	mod := offset % messagesPerFile
 	if mod != 0 {
 		offset -= mod
@@ -392,9 +435,9 @@ func (c *CommunicationChannel) loadMessages(ctx context.Context, offset int) err
 
 	loadOffset := offset
 
-	c.messages = make(Messages, 0, messagesPerFile)
+	c.sequencedMessages = make(Messages, 0, messagesPerFile)
 	for {
-		path := fmt.Sprintf("%s/%08x", c.basePath, offset/messagesPerFile)
+		path := fmt.Sprintf("%s/sequenced/%08x", c.basePath, offset/messagesPerFile)
 
 		var newMessages Messages
 		if err := storage.StreamRead(ctx, c.store, path, &newMessages); err != nil {
@@ -406,7 +449,7 @@ func (c *CommunicationChannel) loadMessages(ctx context.Context, offset int) err
 
 		for _, message := range newMessages {
 			message.id = uint64(offset)
-			c.messages = append(c.messages, message)
+			c.sequencedMessages = append(c.sequencedMessages, message)
 			offset++
 		}
 
@@ -420,7 +463,7 @@ func (c *CommunicationChannel) loadMessages(ctx context.Context, offset int) err
 	return nil
 }
 
-func loadMessageFile(ctx context.Context, store storage.StreamReader, basePath string,
+func loadSequencedMessageFile(ctx context.Context, store storage.StreamReader, basePath string,
 	offset int) (Messages, error) {
 
 	mod := offset % messagesPerFile
@@ -428,8 +471,8 @@ func loadMessageFile(ctx context.Context, store storage.StreamReader, basePath s
 		offset -= mod
 	}
 
-	messages := make(Messages, 0, messagesPerFile)
-	path := fmt.Sprintf("%s/%08x", basePath, offset/messagesPerFile)
+	sequencedMessages := make(Messages, 0, messagesPerFile)
+	path := fmt.Sprintf("%s/sequenced/%08x", basePath, offset/messagesPerFile)
 
 	var newMessages Messages
 	if err := storage.StreamRead(ctx, store, path, &newMessages); err != nil {
@@ -441,11 +484,11 @@ func loadMessageFile(ctx context.Context, store storage.StreamReader, basePath s
 
 	for _, message := range newMessages {
 		message.id = uint64(offset)
-		messages = append(messages, message)
+		sequencedMessages = append(sequencedMessages, message)
 		offset++
 	}
 
-	return messages, nil
+	return sequencedMessages, nil
 }
 
 func (c *CommunicationChannel) Serialize(w io.Writer) error {
@@ -466,7 +509,7 @@ func (c *CommunicationChannel) Serialize(w io.Writer) error {
 		return errors.Wrap(err, "write peer channels")
 	}
 
-	c.messageCount = uint32(c.loadedOffset + len(c.messages))
+	c.messageCount = uint32(c.loadedOffset + len(c.sequencedMessages))
 	if err := binary.Write(w, endian, c.messageCount); err != nil {
 		return errors.Wrap(err, "message count")
 	}
