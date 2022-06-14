@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/tokenized/channels"
+	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 
@@ -130,10 +131,10 @@ func (m *Message) SetResponse(script bitcoin.Script) {
 	m.response = script
 }
 
-func (m *Message) Reject(reject *channels.Reject) error {
+func (m *Message) Reject(reject *channels.Response) error {
 	reject.MessageID = m.ID()
 
-	payload, err := reject.Write()
+	payload, err := reject.Wrap(envelope.Data{})
 	if err != nil {
 		return errors.Wrap(err, "write")
 	}

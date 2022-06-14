@@ -127,8 +127,12 @@ func Unwrap(script []byte) (*WrappedMessage, error) {
 }
 
 func parse(payload envelope.Data) (Writer, error) {
+	if len(payload.Payload) == 0 && len(payload.ProtocolIDs) == 0 {
+		return nil, nil
+	}
+
 	if len(payload.ProtocolIDs) == 0 {
-		return nil, errors.New("Message empty")
+		return nil, errors.New("No Message Protocol")
 	}
 
 	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDMerkleProof) {
@@ -141,10 +145,6 @@ func parse(payload envelope.Data) (Writer, error) {
 
 	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDInvoices) {
 		return ParseInvoice(payload)
-	}
-
-	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDReject) {
-		return ParseReject(payload)
 	}
 
 	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDPeerChannels) {

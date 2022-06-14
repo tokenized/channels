@@ -181,7 +181,6 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 	for _, txout := range etx.Tx.TxOut {
 		for _, key := range keys {
 			if key.LockingScript.Equal(txout.LockingScript) {
-				fmt.Printf("Using key %s : Hash %s\n", key.Key, key.Hash)
 				keysUsed = append(keysUsed, key)
 				break
 			}
@@ -292,12 +291,6 @@ func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 	keys, err := w.GetKeysForTx(ctx, contextID, etx)
 	if err != nil {
 		return errors.Wrap(err, "get keys")
-	}
-
-	fmt.Printf("Found %d keys\n", len(keys))
-	for _, key := range keys {
-		ra, _ := key.RawAddress()
-		fmt.Printf("  Address : %s\n", bitcoin.NewAddressFromRawAddress(ra, bitcoin.MainNet))
 	}
 
 	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)

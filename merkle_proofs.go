@@ -21,7 +21,7 @@ var (
 	ErrInvalidMerkleProof = errors.New("Invalid MerkleProof")
 )
 
-func MerkleProofRejectCodeToString(code uint32) string {
+func MerkleProofStatusToString(code uint32) string {
 	switch code {
 	default:
 		return "parse_error"

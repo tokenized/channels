@@ -199,53 +199,50 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to get unprocessed messages : %s", err)
 	}
 
-	if len(user2Messages) != 1 {
-		t.Fatalf("Wrong message count : got %d, want %d", len(user2Messages), 1)
+	if len(user2Messages) != 0 {
+		t.Fatalf("Wrong message count : got %d, want %d", len(user2Messages), 0)
 	}
 
-	responseFound := false
-	for _, channelMessage := range user2Messages {
-		wMessage, err := channels.Unwrap(channelMessage.Message.Payload())
-		if err != nil {
-			t.Fatalf("Failed to umwrap message : %s", err)
-		}
-
-		if wMessage.Signature == nil {
-			t.Errorf("Message not signed")
-		}
-
-		if wMessage.Response == nil {
-			t.Errorf("Should be a response")
-		}
-
-		if wMessage.Message == nil {
-			continue
-		}
-
-		js, err := json.MarshalIndent(wMessage.Message, "", "  ")
-		t.Logf("User 2 message : %s", js)
-
-		msg, ok := wMessage.Message.(*channels.RelationshipInitiation)
-		if !ok {
-			continue
-		}
-		responseFound = true
-
-		publicKey := user1Channel.Key().PublicKey()
-
-		if !msg.Configuration.PublicKey.Equal(publicKey) {
-			t.Errorf("Wrong public key in initiation response : got %s, want %s",
-				msg.Configuration.PublicKey, publicKey)
-		}
-
-		if msg.Configuration.PeerChannels[0].ID != user1Channel.IncomingPeerChannels()[0].ID {
-			t.Errorf("Wrong peer channel in initiation response : got %s, want %s",
-				msg.Configuration.PeerChannels[0].ID, user1Channel.IncomingPeerChannels()[0].ID)
-		}
+	user2Message, err := user2Channel.GetIncomingMessage(ctx, 0)
+	if err != nil {
+		t.Fatalf("Failed to get message : %s", err)
 	}
 
-	if !responseFound {
-		t.Errorf("Initiation response not found")
+	wMessage, err := channels.Unwrap(user2Message.Payload())
+	if err != nil {
+		t.Fatalf("Failed to umwrap message : %s", err)
+	}
+
+	if wMessage.Signature == nil {
+		t.Errorf("Message not signed")
+	}
+
+	if wMessage.Response == nil {
+		t.Errorf("Should be a response")
+	}
+
+	if wMessage.Message == nil {
+		t.Fatalf("Missing relationship initiation payload")
+	}
+
+	js, err := json.MarshalIndent(wMessage.Message, "", "  ")
+	t.Logf("User 2 message : %s", js)
+
+	msg, ok := wMessage.Message.(*channels.RelationshipInitiation)
+	if !ok {
+		t.Fatalf("Message not relationship initiation")
+	}
+
+	publicKey := user1Channel.Key().PublicKey()
+
+	if !msg.Configuration.PublicKey.Equal(publicKey) {
+		t.Errorf("Wrong public key in initiation response : got %s, want %s",
+			msg.Configuration.PublicKey, publicKey)
+	}
+
+	if msg.Configuration.PeerChannels[0].ID != user1Channel.IncomingPeerChannels()[0].ID {
+		t.Errorf("Wrong peer channel in initiation response : got %s, want %s",
+			msg.Configuration.PeerChannels[0].ID, user1Channel.IncomingPeerChannels()[0].ID)
 	}
 
 	/**************************************** Stop Clients ****************************************/
@@ -393,20 +390,20 @@ func Test_Response(t *testing.T) {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
 
-	reject, ok := wMessage.Message.(*channels.Reject)
-	if !ok {
-		t.Errorf("Message not a reject")
+	if wMessage.Response == nil {
+		t.Fatalf("Missing reject response")
 	}
 
-	js, _ = json.MarshalIndent(reject, "", "  ")
+	if wMessage.Response.Status != channels.StatusReject {
+		t.Fatalf("Wrong response status : got %s, want %s", wMessage.Response.Status,
+			channels.StatusReject)
+	}
+
+	js, _ = json.MarshalIndent(wMessage.Response, "", "  ")
 	t.Logf("Reject : %s", js)
 
 	if wMessage.Signature != nil {
 		t.Errorf("Auto response should not be signed")
-	}
-
-	if wMessage.Response != nil {
-		t.Errorf("Auto response should not contain response")
 	}
 
 	if wMessage.MessageID != nil {

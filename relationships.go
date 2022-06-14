@@ -39,8 +39,8 @@ const (
 	// any further messages on the communication channels involved.
 	RelationshipsMessageTypeSubTerminate = RelationshipsMessageType(5)
 
-	RelationshipsRejectCodeNotInitiated     = uint32(1)
-	RelationshipsRejectCodeAlreadyInitiated = uint32(2)
+	RelationshipsStatusNotInitiated     = uint32(1)
+	RelationshipsStatusAlreadyInitiated = uint32(2)
 )
 
 var (
@@ -382,11 +382,11 @@ func (v RelationshipsMessageType) String() string {
 	}
 }
 
-func RelationshipsRejectCodeToString(code uint32) string {
+func RelationshipsStatusToString(code uint32) string {
 	switch code {
-	case RelationshipsRejectCodeNotInitiated:
+	case RelationshipsStatusNotInitiated:
 		return "not_initiated"
-	case RelationshipsRejectCodeAlreadyInitiated:
+	case RelationshipsStatusAlreadyInitiated:
 		return "already_initiated"
 	default:
 		return "parse_error"

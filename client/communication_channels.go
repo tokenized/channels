@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -435,21 +434,6 @@ func (c *CommunicationChannel) loadSequencedMessages(ctx context.Context, offset
 			message.id = uint64(offset)
 			c.sequencedMessages = append(c.sequencedMessages, message)
 			offset++
-		}
-
-		fmt.Printf("Loaded %d messages\n", len(newMessages))
-		for i, msg := range newMessages {
-			wrap, err := channels.Unwrap(msg.Payload())
-			if err == nil {
-				continue
-			}
-
-			js, err := json.MarshalIndent(wrap, "", "  ")
-			if err != nil {
-				continue
-			}
-
-			fmt.Printf("Message %d : \n%s\n", i, js)
 		}
 
 		if len(newMessages) != messagesPerFile {

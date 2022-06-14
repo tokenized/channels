@@ -15,18 +15,18 @@ import (
 const (
 	SignedMessagesVersion = uint8(0)
 
-	// SignedRejectCodeSignatureRequired is a code specific to the signature protocol that is placed
+	// SignedStatusSignatureRequired is a code specific to the signature protocol that is placed
 	// in a Reject message to signify that a message is considered invalid if it is not signed.
-	SignedRejectCodeSignatureRequired = uint32(1)
+	SignedStatusSignatureRequired = uint32(1)
 
-	// SignedRejectCodeInvalidSignature is a code specific to the signature protocol that is placed
+	// SignedStatusInvalidSignature is a code specific to the signature protocol that is placed
 	// in a Reject message to signify that a message has an invalid signature. Either the wrong
 	// key was used or the signature is just invalid.
-	SignedRejectCodeInvalidSignature = uint32(2)
+	SignedStatusInvalidSignature = uint32(2)
 
-	// SignedRejectCodeWrongPublicKey is a code specific to the signature protocol that is placed
+	// SignedStatusWrongPublicKey is a code specific to the signature protocol that is placed
 	// in a Reject message to signify that a message includes the wrong public key for context.
-	SignedRejectCodeWrongPublicKey = uint32(3)
+	SignedStatusWrongPublicKey = uint32(3)
 )
 
 var (
@@ -217,13 +217,13 @@ func (m Signature) Verify() error {
 	return nil
 }
 
-func SignedRejectCodeToString(code uint32) string {
+func SignedStatusToString(code uint32) string {
 	switch code {
-	case SignedRejectCodeSignatureRequired:
+	case SignedStatusSignatureRequired:
 		return "signature_required"
-	case SignedRejectCodeInvalidSignature:
+	case SignedStatusInvalidSignature:
 		return "invalid_signature"
-	case SignedRejectCodeWrongPublicKey:
+	case SignedStatusWrongPublicKey:
 		return "wrong_public_key"
 	default:
 		return "parse_error"

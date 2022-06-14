@@ -69,7 +69,6 @@ type Client struct {
 func SupportedProtocols() envelope.ProtocolIDs {
 	return envelope.ProtocolIDs{
 		channels.ProtocolIDResponse,
-		channels.ProtocolIDReject,
 		channels.ProtocolIDSignedMessages,
 		channels.ProtocolIDRelationships,
 		channels.ProtocolIDInvoices,

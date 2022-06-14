@@ -25,36 +25,36 @@ const (
 	InvoicesMessageTypeTransfer        = InvoicesMessageType(6)
 	InvoicesMessageTypeTransferAccept  = InvoicesMessageType(7)
 
-	// InvoicesRejectCodeTxNotAccepted is a code specific to the invoices protocol that is placed
+	// InvoicesStatusTxNotAccepted is a code specific to the invoices protocol that is placed
 	// in a Reject message to signify that a Bitcoin transaction was not accepted by the network.
-	InvoicesRejectCodeTxNotAccepted = uint32(1)
-	InvoicesRejectCodeInvalidOrder  = uint32(2)
-	InvoicesRejectCodeUnknownItem   = uint32(3)
-	InvoicesRejectCodeWrongPrice    = uint32(4)
+	InvoicesStatusTxNotAccepted = uint32(1)
+	InvoicesStatusInvalidOrder  = uint32(2)
+	InvoicesStatusUnknownItem   = uint32(3)
+	InvoicesStatusWrongPrice    = uint32(4)
 
-	// InvoicesRejectCodeTxNotValid means the transaction or its ancestors did not validate. There
+	// InvoicesStatusTxNotValid means the transaction or its ancestors did not validate. There
 	// could be an invalid signature or parse error in the tx, or one of its ancestors.
-	InvoicesRejectCodeTxNotValid = uint32(5)
+	InvoicesStatusTxNotValid = uint32(5)
 
-	// InvoicesRejectCodeTxFeeTooLow means the tx does not pay the fee requirement defined in the
+	// InvoicesStatusTxFeeTooLow means the tx does not pay the fee requirement defined in the
 	// previously provided fee quote.
-	InvoicesRejectCodeTxFeeTooLow = uint32(6)
+	InvoicesStatusTxFeeTooLow = uint32(6)
 
-	// InvoicesRejectCodeTxMissingAncestor means the `InvoicesRequirementAncestorsToMerkleProofs`
+	// InvoicesStatusTxMissingAncestor means the `InvoicesRequirementAncestorsToMerkleProofs`
 	// requirement was not met. Ancestors were not provided all the way to merkle proofs.
-	InvoicesRejectCodeTxMissingAncestor = uint32(7)
+	InvoicesStatusTxMissingAncestor = uint32(7)
 
-	// InvoicesRejectCodeTxMissingInput means the ancestors do not meet the
+	// InvoicesStatusTxMissingInput means the ancestors do not meet the
 	// InvoicesRequirementInputs requirement. Not all outputs being spent by the tx are included in
 	// the ancestors.
-	InvoicesRejectCodeTxMissingInput = uint32(8)
+	InvoicesStatusTxMissingInput = uint32(8)
 
-	// InvoicesRejectCodeTransferUnknown means that a received Transfer does not match any
+	// InvoicesStatusTransferUnknown means that a received Transfer does not match any
 	// previously sent TransferRequest.
-	InvoicesRejectCodeTransferUnknown = uint32(9)
+	InvoicesStatusTransferUnknown = uint32(9)
 
-	// InvoicesRejectCodeMissingResponseID means that a message required a response id to be valid.
-	InvoicesRejectCodeMissingResponseID = uint32(10)
+	// InvoicesStatusMissingResponseID means that a message required a response id to be valid.
+	InvoicesStatusMissingResponseID = uint32(10)
 )
 
 var (
@@ -626,27 +626,27 @@ func (v InvoicesMessageType) String() string {
 	}
 }
 
-func InvoicesRejectCodeToString(code uint32) string {
+func InvoicesStatusToString(code uint32) string {
 	switch code {
-	case InvoicesRejectCodeTxNotAccepted:
+	case InvoicesStatusTxNotAccepted:
 		return "tx_not_accepted"
-	case InvoicesRejectCodeInvalidOrder:
+	case InvoicesStatusInvalidOrder:
 		return "invalid_order"
-	case InvoicesRejectCodeUnknownItem:
+	case InvoicesStatusUnknownItem:
 		return "unknown_item"
-	case InvoicesRejectCodeWrongPrice:
+	case InvoicesStatusWrongPrice:
 		return "wrong_price"
-	case InvoicesRejectCodeTxNotValid:
+	case InvoicesStatusTxNotValid:
 		return "tx_not_valid"
-	case InvoicesRejectCodeTxFeeTooLow:
+	case InvoicesStatusTxFeeTooLow:
 		return "tx_fee_too_low"
-	case InvoicesRejectCodeTxMissingAncestor:
+	case InvoicesStatusTxMissingAncestor:
 		return "tx_missing_ancestor"
-	case InvoicesRejectCodeTxMissingInput:
+	case InvoicesStatusTxMissingInput:
 		return "tx_missing_input"
-	case InvoicesRejectCodeTransferUnknown:
+	case InvoicesStatusTransferUnknown:
 		return "transfer_unknown"
-	case InvoicesRejectCodeMissingResponseID:
+	case InvoicesStatusMissingResponseID:
 		return "missing_response_id"
 	default:
 		return "parse_error"
