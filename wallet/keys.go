@@ -102,7 +102,8 @@ func (w *Wallet) FindKeys(ctx context.Context, tx *wire.MsgTx) (Keys, *bitcoin.H
 	return nil, nil, ErrContextIDNotFound
 }
 
-// GenerateKey generates a new hash and derives a new key from the base key and the hash.
+// GenerateKey generates a new hash and derives a new key from the base key and the hash. This key
+// is not saved until RetainKeys is called.
 func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
 	baseKey := w.BaseKey()
 
@@ -120,19 +121,11 @@ func (w *Wallet) GenerateKey(contextID bitcoin.Hash32) (*Key, error) {
 		modified:      true,
 	}
 
-	w.keysLock.Lock()
-	previous, exists := w.keys[contextID]
-	if exists {
-		w.keys[contextID] = append(previous, walletKey)
-	} else {
-		w.keys[contextID] = Keys{walletKey}
-	}
-	w.keysLock.Unlock()
-
 	return walletKey, nil
 }
 
-// GenerateKey generates a new hash and derives a new key from the base key and the hash.
+// GenerateKey generates a new hash and derives a new key from the base key and the hash. These keys
+// are not saved until RetainKeys is called.
 func (w *Wallet) GenerateKeys(contextID bitcoin.Hash32, count int) (Keys, error) {
 	baseKey := w.BaseKey()
 
@@ -168,16 +161,22 @@ func (w *Wallet) GenerateKeys(contextID bitcoin.Hash32, count int) (Keys, error)
 		}
 	}
 
+	return result, nil
+}
+
+func (w *Wallet) RetainKeys(contextID bitcoin.Hash32, keys Keys) error {
+	print("retaining keys ", contextID.String(), "\n")
 	w.keysLock.Lock()
+	defer w.keysLock.Unlock()
+
 	previous, exists := w.keys[contextID]
 	if exists {
-		w.keys[contextID] = append(previous, result...)
+		w.keys[contextID] = append(previous, keys...)
 	} else {
-		w.keys[contextID] = result
+		w.keys[contextID] = keys
 	}
-	w.keysLock.Unlock()
 
-	return result, nil
+	return nil
 }
 
 func GenerateHashKey(baseKey bitcoin.Key, contextID bitcoin.Hash32) (bitcoin.Hash32, bitcoin.Key) {
@@ -240,6 +239,8 @@ func RandomHash() bitcoin.Hash32 {
 func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 	baseKey bitcoin.Key) error {
 
+	print("loading keys\n")
+
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
 		return errors.Wrap(err, "list")
@@ -252,6 +253,7 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 		}
 
 		for contextID, keys := range keySet {
+			print("loading keyset ", contextID.String(), "\n")
 			(*ks)[contextID] = keys
 		}
 	}
@@ -277,6 +279,7 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 }
 
 func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHeight uint32) error {
+	print("saving keys\n")
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
 		return errors.Wrap(err, "list")
@@ -295,6 +298,7 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 		archiveKeys := make(KeySet)
 		unarchivedKeys := make(KeySet)
 		for contextID, keys := range keyset {
+			print("saving keyset ", contextID.String(), "\n")
 			for _, key := range keys {
 				if key.modified {
 					modified = true

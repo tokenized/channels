@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/pkg/errors"
 	channelsClient "github.com/tokenized/channels/client"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
@@ -14,6 +13,8 @@ import (
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/threads"
 	spyNodeClient "github.com/tokenized/spynode/pkg/client"
+
+	"github.com/pkg/errors"
 )
 
 type Client struct {
@@ -22,8 +23,6 @@ type Client struct {
 	store          storage.StreamStorage
 
 	spyNodeClient spyNodeClient.Client
-
-	nextSpyNodeMessageID uint64
 }
 
 var (
@@ -32,7 +31,8 @@ var (
 )
 
 func NewClient(key bitcoin.Key, store storage.StreamStorage,
-	peerChannelsFactory *peer_channels.Factory, spyNodeClient spyNodeClient.Client) *Client {
+	peerChannelsFactory *peer_channels.Factory, merkleProofVerifier wallet.MerkleProofVerifier,
+	feeQuoter wallet.FeeQuoter, spyNodeClient spyNodeClient.Client) *Client {
 
 	clientKey, err := key.AddHash(*clientHash)
 	if err != nil {
@@ -44,12 +44,14 @@ func NewClient(key bitcoin.Key, store storage.StreamStorage,
 		panic(fmt.Sprintf("Failed to generate wallet key : %s", err))
 	}
 
+	wallet := wallet.NewWallet(wallet.DefaultConfig(), store, merkleProofVerifier, feeQuoter,
+		walletKey)
+
 	return &Client{
-		ChannelsClient: channelsClient.NewClient(clientKey, store, peerChannelsFactory),
-		Wallet: wallet.NewWallet(wallet.DefaultConfig(), store, spyNodeClient, spyNodeClient,
-			walletKey),
-		spyNodeClient: spyNodeClient,
-		store:         store,
+		ChannelsClient: channelsClient.NewClient(clientKey, store, wallet, peerChannelsFactory),
+		Wallet:         wallet,
+		spyNodeClient:  spyNodeClient,
+		store:          store,
 	}
 }
 

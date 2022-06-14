@@ -104,20 +104,12 @@ func (c *Client) HandleMessage(ctx context.Context, payload spyNodeClient.Messag
 	case *spyNodeClient.AcceptRegister:
 		logger.Info(ctx, "Spynode registration accepted")
 
-		if c.nextSpyNodeMessageID == 0 || c.nextSpyNodeMessageID > msg.MessageCount+1 {
-			logger.WarnWithFields(ctx, []logger.Field{
-				logger.Uint64("next_message_id", c.nextSpyNodeMessageID),
-				logger.Uint64("message_count", msg.MessageCount),
-			}, "Resetting next message id")
-			c.nextSpyNodeMessageID = 1 // first message is 1
-		}
-
-		if err := c.spyNodeClient.Ready(ctx, c.nextSpyNodeMessageID); err != nil {
+		if err := c.spyNodeClient.Ready(ctx, msg.MessageCount+1); err != nil {
 			logger.Error(ctx, "Failed to notify spynode ready : %s", err)
 		}
 
 		logger.InfoWithFields(ctx, []logger.Field{
-			logger.Uint64("next_message_id", c.nextSpyNodeMessageID),
+			logger.Uint64("next_message_id", msg.MessageCount+1),
 		}, "Spynode client ready")
 	}
 }

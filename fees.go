@@ -13,6 +13,8 @@ var (
 		Bytes:    1000,
 	}
 
+	DefaultFeeRequirements = FeeRequirements{&DefaultFeeRequirement}
+
 	DefaultFeeQuote = merchant_api.FeeQuote{
 		FeeType: merchant_api.FeeTypeStandard,
 		MiningFee: merchant_api.Fee{

@@ -52,6 +52,9 @@ const (
 	// InvoicesRejectCodeTransferUnknown means that a received Transfer does not match any
 	// previously sent TransferRequest.
 	InvoicesRejectCodeTransferUnknown = uint32(9)
+
+	// InvoicesRejectCodeMissingResponseID means that a message required a response id to be valid.
+	InvoicesRejectCodeMissingResponseID = uint32(10)
 )
 
 var (
@@ -313,9 +316,11 @@ func (t Transfer) Fulfills(request *TransferRequest) bool {
 	return true
 }
 
-// TransferAccept is an acceptance of an transfer. It should always be wrapped in a
-// response to the transfer message.
+// TransferAccept is an acceptance of a transfer. It should always be wrapped in a response to the
+// transfer message. It should contain the final expanded tx if the acceptor signed any inputs or
+// made any changes to the tx that effected its txid.
 type TransferAccept struct {
+	Tx *ExpandedTx `bsor:"1" json:"tx"`
 }
 
 func (*TransferAccept) ProtocolID() envelope.ProtocolID {
@@ -586,9 +591,9 @@ func (v *InvoicesMessageType) SetString(s string) error {
 		*v = InvoicesMessageTypePurchaseOrder
 	case "invoice":
 		*v = InvoicesMessageTypeInvoice
-	case "invoice_tx":
+	case "transfer_request":
 		*v = InvoicesMessageTypeTransferRequest
-	case "payment":
+	case "transfer":
 		*v = InvoicesMessageTypeTransfer
 	case "accept":
 		*v = InvoicesMessageTypeTransferAccept
@@ -611,9 +616,9 @@ func (v InvoicesMessageType) String() string {
 	case InvoicesMessageTypeInvoice:
 		return "invoice"
 	case InvoicesMessageTypeTransferRequest:
-		return "invoice_tx"
+		return "transfer_request"
 	case InvoicesMessageTypeTransfer:
-		return "payment"
+		return "transfer"
 	case InvoicesMessageTypeTransferAccept:
 		return "accept"
 	default:
@@ -641,6 +646,8 @@ func InvoicesRejectCodeToString(code uint32) string {
 		return "tx_missing_input"
 	case InvoicesRejectCodeTransferUnknown:
 		return "transfer_unknown"
+	case InvoicesRejectCodeMissingResponseID:
+		return "missing_response_id"
 	default:
 		return "parse_error"
 	}

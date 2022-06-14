@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -271,23 +272,6 @@ func (c *CommunicationChannel) newMessage(ctx context.Context) (*Message, error)
 	return msg, nil
 }
 
-// func (c *CommunicationChannel) newMessageWithPayload(ctx context.Context,
-// 	payload bitcoin.Script) (*Message, error) {
-// 	msg := &Message{
-// 		id:        uint64(c.loadedOffset + len(c.sequencedMessages)),
-// 		payload:   payload,
-// 		timestamp: channels.Now(),
-// 	}
-
-// 	c.sequencedMessages = append(c.sequencedMessages, msg)
-
-// 	logger.InfoWithFields(ctx, []logger.Field{
-// 		logger.Uint64("message_id", msg.ID()),
-// 		logger.Int("bytes", len(payload)),
-// 	}, "New message with payload")
-// 	return msg, nil
-// }
-
 func (c *CommunicationChannel) sendMessage(ctx context.Context,
 	peerChannelsFactory *peer_channels.Factory, message *Message) error {
 	c.lock.Lock()
@@ -412,6 +396,9 @@ func (c *CommunicationChannel) Load(ctx context.Context) error {
 		offset = int(c.messageCount) - messagesPerFile
 	}
 
+	if offset > int(c.lowestUnprocessed) {
+		offset = int(c.lowestUnprocessed)
+	}
 	if err := c.loadSequencedMessages(ctx, offset); err != nil {
 		return errors.Wrap(err, "sequenced messages")
 	}
@@ -425,9 +412,6 @@ func (c *CommunicationChannel) loadSequencedMessages(ctx context.Context, offset
 		offset -= mod
 	}
 
-	if offset > int(c.lowestUnprocessed) {
-		offset = int(c.lowestUnprocessed)
-	}
 	mod = offset % messagesPerFile
 	if mod != 0 {
 		offset -= mod
@@ -451,6 +435,21 @@ func (c *CommunicationChannel) loadSequencedMessages(ctx context.Context, offset
 			message.id = uint64(offset)
 			c.sequencedMessages = append(c.sequencedMessages, message)
 			offset++
+		}
+
+		fmt.Printf("Loaded %d messages\n", len(newMessages))
+		for i, msg := range newMessages {
+			wrap, err := channels.Unwrap(msg.Payload())
+			if err == nil {
+				continue
+			}
+
+			js, err := json.MarshalIndent(wrap, "", "  ")
+			if err != nil {
+				continue
+			}
+
+			fmt.Printf("Message %d : \n%s\n", i, js)
 		}
 
 		if len(newMessages) != messagesPerFile {

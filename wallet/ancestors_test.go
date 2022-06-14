@@ -64,7 +64,7 @@ func Test_PopulateExpandedTx_DuplicateAncestor(t *testing.T) {
 		t.Fatalf("Failed to create bitcoin receive : %s", err)
 	}
 
-	populateDepth, err := wallet.FundTx(ctx, contextID, etx)
+	populateDepth, err := wallet.FundTx(ctx, contextID, etx, channels.DefaultFeeRequirements)
 	if err != nil {
 		t.Fatalf("Failed to fund tx : %s", err)
 	}
@@ -111,7 +111,7 @@ func Test_PopulateExpandedTx_MissingInput(t *testing.T) {
 		t.Fatalf("Failed to create bitcoin receive : %s", err)
 	}
 
-	populateDepth, err := wallet.FundTx(ctx, contextID, etx)
+	populateDepth, err := wallet.FundTx(ctx, contextID, etx, channels.DefaultFeeRequirements)
 	if err != nil {
 		t.Fatalf("Failed to fund tx : %s", err)
 	}
@@ -130,7 +130,8 @@ func Test_PopulateExpandedTx_MissingInput(t *testing.T) {
 
 	depth, err := receiverWallet.VerifyExpandedTx(ctx, contextID, etx)
 	if errors.Cause(err) != channels.MissingInput {
-		t.Fatalf("Verify expanded tx returned wrong error : got %s, want %s", err, channels.MissingInput)
+		t.Fatalf("Verify expanded tx returned wrong error : got %s, want %s", err,
+			channels.MissingInput)
 	}
 	t.Logf("Depth %d", depth)
 
@@ -188,5 +189,46 @@ func Test_PopulateExpandedTx_MissingMerkleProofAncestors(t *testing.T) {
 
 	if depth != 2 {
 		t.Errorf("Wrong ancestry depth : got %d, want %d", depth, 2)
+	}
+}
+
+func Test_VerifyFee(t *testing.T) {
+	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
+	wallet, verifier, quoter := MockWallet()
+	receiverWallet := MockWalletWith(verifier, quoter)
+
+	contextID := RandomHash()
+	MockReceiveTxWithProof(ctx, wallet, contextID, 2000)
+	MockReceiveTxWithProof(ctx, wallet, contextID, 3000)
+	MockReceiveTxWithProof(ctx, wallet, contextID, 6000)
+
+	requirements := channels.DefaultFeeRequirements
+	requirements[0].Satoshis = 500
+
+	etx, _, err := receiverWallet.CreateBitcoinReceive(ctx, contextID, 9500)
+	if err != nil {
+		t.Fatalf("Failed to create bitcoin receive : %s", err)
+	}
+
+	if _, err := wallet.FundTx(ctx, contextID, etx, requirements); err != nil {
+		t.Fatalf("Failed to fund tx : %s", err)
+	}
+
+	if _, err := wallet.PopulateExpandedTx(ctx, etx); err != nil {
+		t.Fatalf("Failed to populate tx : %s", err)
+	}
+
+	if err := wallet.SignTx(ctx, contextID, etx); err != nil {
+		t.Fatalf("Failed to sign tx : %s", err)
+	}
+
+	t.Logf("Expanded Tx : %s", etx.String())
+
+	if len(etx.Tx.TxIn) != 3 {
+		t.Errorf("Wrong tx input count : got %d, want %d", len(etx.Tx.TxIn), 3)
+	}
+
+	if err := receiverWallet.VerifyFee(ctx, contextID, etx, requirements); err != nil {
+		t.Fatalf("Failed to verify fee requirements : %s", err)
 	}
 }

@@ -40,19 +40,45 @@ type Outputs []*Output
 
 type OutputsByTimestamp Outputs
 
-func (os OutputsByTimestamp) Len() int {
-	return len(os)
-}
+func (w *Wallet) GetKeysForTx(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx) ([]bitcoin.Key, error) {
 
-func (os OutputsByTimestamp) Swap(i, j int) {
-	os[i], os[j] = os[j], os[i]
-}
+	baseKey := w.BaseKey()
 
-func (os OutputsByTimestamp) Less(i, j int) bool {
-	if os[i].Timestamp == os[j].Timestamp {
-		return os[i].TxID[0] < os[j].TxID[0]
+	w.outputsLock.Lock()
+	defer w.outputsLock.Unlock()
+
+	result := make([]bitcoin.Key, 0, len(etx.Tx.TxIn))
+	for _, txin := range etx.Tx.TxIn {
+		output := w.outputs.Find(txin.PreviousOutPoint.Hash, txin.PreviousOutPoint.Index)
+		if output == nil {
+			return nil, errors.Wrap(ErrMissingOutput, txin.PreviousOutPoint.String())
+		}
+
+		if output.DerivationHash == nil {
+			return nil, errors.Wrap(errors.New("Missing Output Derivation Hash"),
+				txin.PreviousOutPoint.String())
+		}
+
+		key, err := baseKey.AddHash(*output.DerivationHash)
+		if err != nil {
+			return nil, errors.Wrap(err, "derive key")
+		}
+
+		result = append(result, key)
 	}
-	return os[i].Timestamp < os[j].Timestamp
+
+	return result, nil
+}
+
+func (os *Outputs) Find(txid bitcoin.Hash32, index uint32) *Output {
+	for _, output := range *os {
+		if output.TxID.Equal(&txid) && output.Index == index {
+			return output
+		}
+	}
+
+	return nil
 }
 
 func (os *Outputs) load(ctx context.Context, store storage.StreamStorage) error {
@@ -268,4 +294,19 @@ func (os *Outputs) Deserialize(r io.Reader) error {
 
 	*os = result
 	return nil
+}
+
+func (os OutputsByTimestamp) Len() int {
+	return len(os)
+}
+
+func (os OutputsByTimestamp) Swap(i, j int) {
+	os[i], os[j] = os[j], os[i]
+}
+
+func (os OutputsByTimestamp) Less(i, j int) bool {
+	if os[i].Timestamp == os[j].Timestamp {
+		return os[i].TxID[0] < os[j].TxID[0]
+	}
+	return os[i].Timestamp < os[j].Timestamp
 }

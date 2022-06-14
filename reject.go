@@ -98,6 +98,10 @@ func (r Reject) CodeToString() string {
 		return "invoices:" + InvoicesRejectCodeToString(r.Code)
 	}
 
+	if bytes.Equal(r.RejectProtocolID, ProtocolIDResponse) {
+		return "response:" + ResponseRejectCodeToString(r.Code)
+	}
+
 	if r.Code == 0 {
 		return r.RejectProtocolID.String() + ":parse"
 	}

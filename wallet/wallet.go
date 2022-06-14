@@ -38,6 +38,7 @@ var (
 	ErrNotMostPOW         = errors.New("Not Most POW")
 	ErrContextNotFound    = errors.New("Context Not Found")
 	ErrWrongKey           = errors.New("Wrong Key")
+	ErrMissingOutput      = errors.New("Missing Output")
 
 	AlreadyHaveMerkleProof = errors.New("Already Have Merkle Proof")
 
@@ -147,7 +148,7 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 
 	keys, err := w.GenerateKeys(contextID, w.config.BreakCount)
 	if err != nil {
-		return nil, 0, errors.Wrap(err, "keys")
+		return nil, 0, errors.Wrap(err, "generate keys")
 	}
 
 	lockingScripts := make([]bitcoin.Script, len(keys))
@@ -172,23 +173,43 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 	}
 
 	depth, err := w.PopulateExpandedTx(ctx, etx)
-	if err == nil {
-		return etx, depth, nil
+	if err != nil {
+		return nil, depth, errors.Wrap(err, "populate")
 	}
 
-	return nil, depth, errors.Wrap(err, "populate")
+	var keysUsed Keys
+	for _, txout := range etx.Tx.TxOut {
+		for _, key := range keys {
+			if key.LockingScript.Equal(txout.LockingScript) {
+				fmt.Printf("Using key %s : Hash %s\n", key.Key, key.Hash)
+				keysUsed = append(keysUsed, key)
+				break
+			}
+		}
+	}
+
+	if err := w.RetainKeys(contextID, keysUsed); err != nil {
+		return nil, 0, errors.Wrap(err, "retain keys")
+	}
+
+	return etx, depth, nil
 }
 
 func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) (uint, error) {
+	etx *channels.ExpandedTx, requirements channels.FeeRequirements) (uint, error) {
+
+	fee := requirements.GetRequirement(merchant_api.FeeTypeStandard)
+	if fee == nil {
+		return 0, errors.New("Missing fee requirement")
+	}
+	miningFeeRate := fee.Rate()
 
 	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
 	if err != nil {
 		return 0, errors.Wrap(err, "fee quotes")
 	}
-
-	miningFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).MiningFee.Rate()
-	relayFeeRate := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard).RelayFee.Rate()
+	standardFeeQuote := channels.GetFeeQuote(feeQuotes, merchant_api.FeeTypeStandard)
+	relayFeeRate := standardFeeQuote.RelayFee.Rate()
 
 	txb, err := txbuilder.NewTxBuilderFromWire(miningFeeRate, relayFeeRate, etx.Tx,
 		etx.Ancestors.GetTxs())
@@ -248,20 +269,35 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 		return depth, errors.Wrap(err, "populate")
 	}
 
+	var keysUsed Keys
+	for _, txout := range etx.Tx.TxOut {
+		for _, key := range changeKeys {
+			if key.LockingScript.Equal(txout.LockingScript) {
+				keysUsed = append(keysUsed, key)
+				break
+			}
+		}
+	}
+
+	if err := w.RetainKeys(contextID, keysUsed); err != nil {
+		return 0, errors.Wrap(err, "retain keys")
+	}
+
 	return depth, nil
 }
 
 func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 	etx *channels.ExpandedTx) error {
 
-	wkeys, err := w.GetKeys(ctx, contextID)
+	keys, err := w.GetKeysForTx(ctx, contextID, etx)
 	if err != nil {
 		return errors.Wrap(err, "get keys")
 	}
 
-	keys := make([]bitcoin.Key, len(wkeys))
-	for i, wkey := range wkeys {
-		keys[i] = wkey.Key
+	fmt.Printf("Found %d keys\n", len(keys))
+	for _, key := range keys {
+		ra, _ := key.RawAddress()
+		fmt.Printf("  Address : %s\n", bitcoin.NewAddressFromRawAddress(ra, bitcoin.MainNet))
 	}
 
 	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
@@ -278,33 +314,9 @@ func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 		return errors.Wrap(err, "tx builder")
 	}
 
-	usedKeys, err := txb.SignOnly(keys)
-	if err != nil {
+	if _, err := txb.SignOnly(keys); err != nil {
 		return errors.Wrap(err, "sign")
 	}
-
-	blockHeight := w.BlockHeight()
-	for _, usedKey := range usedKeys {
-		for _, wkey := range wkeys {
-			if !wkey.Key.Equal(usedKey) {
-				continue
-			}
-
-			if wkey.UsedHeight != blockHeight {
-				wkey.UsedHeight = blockHeight
-				wkey.modified = true
-			}
-
-			break
-		}
-	}
-
-	w.keysLock.Lock()
-	if err := w.keys.save(ctx, w.store, blockHeight); err != nil {
-		w.keysLock.Unlock()
-		return errors.Wrap(err, "save keys")
-	}
-	w.keysLock.Unlock()
 
 	return nil
 }

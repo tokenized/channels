@@ -12,9 +12,11 @@ import (
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
+	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/threads"
+	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
 )
@@ -34,6 +36,12 @@ var (
 	endian = binary.LittleEndian
 )
 
+// Wallet defines the wallet functions that the Channels client needs direct access to.
+type Wallet interface {
+	AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) ([]bitcoin.Hash32, error)
+	AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.MsgTx) error
+}
+
 type Client struct {
 	baseKey  bitcoin.Key
 	channels Channels
@@ -44,6 +52,7 @@ type Client struct {
 	peerChannelsAccountToken *string
 
 	store               storage.StreamReadWriter
+	wallet              Wallet
 	peerChannelsFactory *peer_channels.Factory
 
 	messagesLock    sync.Mutex
@@ -70,10 +79,11 @@ func SupportedProtocols() envelope.ProtocolIDs {
 }
 
 func NewClient(baseKey bitcoin.Key, store storage.StreamReadWriter,
-	peerChannelsFactory *peer_channels.Factory) *Client {
+	wallet Wallet, peerChannelsFactory *peer_channels.Factory) *Client {
 	return &Client{
 		baseKey:             baseKey,
 		store:               store,
+		wallet:              wallet,
 		peerChannelsFactory: peerChannelsFactory,
 	}
 }
@@ -561,7 +571,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 func (c *Client) processMessage(ctx context.Context, channel *Channel,
 	message *peer_channels.Message) error {
 
-	result, err := channel.ProcessMessage(ctx, message)
+	result, err := channel.ProcessMessage(ctx, c.wallet, message)
 	if err != nil {
 		return errors.Wrap(err, "channel")
 	}

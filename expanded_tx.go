@@ -40,14 +40,19 @@ func (etx ExpandedTx) CalculateFee() (uint64, error) {
 	for _, txin := range etx.Tx.TxIn {
 		parentTx := etx.Ancestors.GetTx(txin.PreviousOutPoint.Hash)
 		if parentTx == nil {
-			return 0, errors.Wrap(MissingInput, txin.PreviousOutPoint.Hash.String())
+			return 0, errors.Wrap(MissingInput, "parent:"+txin.PreviousOutPoint.Hash.String())
 		}
 
-		if txin.PreviousOutPoint.Index >= uint32(len(parentTx.Tx.TxOut)) {
+		tx := parentTx.GetTx()
+		if tx == nil {
+			return 0, errors.Wrap(MissingInput, "parent tx:"+txin.PreviousOutPoint.Hash.String())
+		}
+
+		if txin.PreviousOutPoint.Index >= uint32(len(tx.TxOut)) {
 			return 0, errors.Wrap(MissingInput, txin.PreviousOutPoint.String())
 		}
 
-		inputValue += parentTx.Tx.TxOut[txin.PreviousOutPoint.Index].Value
+		inputValue += tx.TxOut[txin.PreviousOutPoint.Index].Value
 	}
 
 	outputValue := uint64(0)

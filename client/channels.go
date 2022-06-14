@@ -193,9 +193,16 @@ func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Sc
 	return nil
 }
 
-// GetMessage returns the message for the specified id. It returns a copy so the message
+// GetIncomingMessage returns the message for the specified id. It returns a copy so the message
 // modification functions will not work.
-func (c *Channel) GetMessage(ctx context.Context, id uint64) (*Message, error) {
+func (c *Channel) GetIncomingMessage(ctx context.Context, id uint64) (*Message, error) {
+	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", c.Hash()))
+	return c.incoming.GetMessage(ctx, id)
+}
+
+// GetOutgoingMessage returns the message for the specified id. It returns a copy so the message
+// modification functions will not work.
+func (c *Channel) GetOutgoingMessage(ctx context.Context, id uint64) (*Message, error) {
 	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", c.Hash()))
 	return c.outgoing.GetMessage(ctx, id)
 }
@@ -282,22 +289,99 @@ func (c *Channel) SetExternalPublicKey(ctx context.Context, publicKey bitcoin.Pu
 	return nil
 }
 
-func (c *Channel) ProcessMessage(ctx context.Context,
+func (c *Channel) transferAccept(ctx context.Context, wallet Wallet, msg *Message,
+	wrap *channels.WrappedMessage, transferAccept *channels.TransferAccept) error {
+	if wallet == nil {
+		return nil
+	}
+
+	if transferAccept.Tx != nil {
+		if err := wallet.AddTx(ctx, c.Hash(), transferAccept.Tx.Tx); err != nil {
+			return errors.Wrap(err, "add tx")
+		}
+
+		if err := c.incoming.MarkMessageIsProcessed(ctx, msg.ID()); err != nil {
+			return errors.Wrap(err, "mark is processed")
+		}
+
+		return nil
+	}
+
+	// Find tx in Transfer to which the TransferAccept is a response.
+	if wrap.Response == nil {
+		if err := msg.Reject(&channels.Reject{
+			Reason:           channels.RejectReasonInvalid,
+			RejectProtocolID: channels.ProtocolIDInvoices,
+			Code:             channels.InvoicesRejectCodeMissingResponseID,
+			Note:             "TransferAccept missing response id",
+		}); err != nil {
+			return errors.Wrap(err, "response id missing: reject")
+		}
+		return nil
+	}
+
+	transferMsg, err := c.outgoing.GetMessage(ctx, wrap.Response.MessageID)
+	if err != nil {
+		if errors.Cause(err) == ErrMessageNotFound {
+			if err := msg.Reject(&channels.Reject{
+				Reason:           channels.RejectReasonInvalid,
+				RejectProtocolID: channels.ProtocolIDResponse,
+				Code:             channels.ResponseRejectCodeMessageNotFound,
+				Note:             "Response id message not found",
+			}); err != nil {
+				return errors.Wrap(err, "response id not found: reject")
+			}
+			return nil
+		}
+
+		return errors.Wrap(err, "get message")
+	}
+
+	transferWrap, err := channels.Unwrap(bitcoin.Script(transferMsg.Payload()))
+	if err != nil {
+		return errors.Wrap(err, "unwrap")
+	}
+
+	transfer, ok := transferWrap.Message.(*channels.Transfer)
+	if !ok {
+		if err := msg.Reject(&channels.Reject{
+			Reason:           channels.RejectReasonInvalid,
+			RejectProtocolID: channels.ProtocolIDResponse,
+			Code:             channels.ResponseRejectCodeMessageNotFound,
+			Note:             "Response message not transfer",
+		}); err != nil {
+			return errors.Wrap(err, "response id not transfer: reject")
+		}
+		return nil
+	}
+
+	if err := wallet.AddTx(ctx, c.Hash(), transfer.Tx.Tx); err != nil {
+		return errors.Wrap(err, "add tx")
+	}
+
+	if err := c.incoming.MarkMessageIsProcessed(ctx, msg.ID()); err != nil {
+		return errors.Wrap(err, "mark is processed")
+	}
+
+	return nil
+}
+
+func (c *Channel) ProcessMessage(ctx context.Context, wallet Wallet,
 	message *peer_channels.Message) (*Message, error) {
 
 	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", c.Hash()))
 
-	wMessage, err := channels.Unwrap(bitcoin.Script(message.Payload))
+	wrap, err := channels.Unwrap(bitcoin.Script(message.Payload))
 	if err != nil {
 		return nil, errors.Wrap(err, "unwrap")
 	}
 
-	msg, err := c.incoming.AddMessage(ctx, bitcoin.Script(message.Payload), wMessage)
+	msg, err := c.incoming.AddMessage(ctx, bitcoin.Script(message.Payload), wrap)
 	if err != nil {
 		return nil, errors.Wrap(err, "add message")
 	}
 
-	if wMessage.Signature == nil {
+	if wrap.Signature == nil {
 		if err := msg.Reject(&channels.Reject{
 			Reason:           channels.RejectReasonInvalid,
 			RejectProtocolID: channels.ProtocolIDSignedMessages,
@@ -308,21 +392,37 @@ func (c *Channel) ProcessMessage(ctx context.Context,
 		return nil, nil
 	}
 
-	if wMessage.Response != nil {
+	if wrap.Response != nil {
 		logger.InfoWithFields(ctx, []logger.Field{
-			logger.Uint64("response_id", wMessage.Response.MessageID),
+			logger.Uint64("response_id", wrap.Response.MessageID),
 		}, "Response")
 	}
 
 	publicKey := c.GetExternalPublicKey()
 
 	var configuration *channels.ChannelConfiguration
-	switch msg := wMessage.Message.(type) {
+	switch channelsMsg := wrap.Message.(type) {
 	case *channels.RelationshipInitiation:
-		configuration = &msg.Configuration
+		configuration = &channelsMsg.Configuration
 		if publicKey == nil {
 			// Use newly established relationship key
 			publicKey = &configuration.PublicKey
+		}
+
+	case *channels.MerkleProof:
+		if wallet != nil {
+			if _, err := wallet.AddMerkleProof(ctx, channelsMsg.MerkleProof); err != nil {
+				return nil, errors.Wrap(err, "add merkle proof")
+			}
+
+			if err := c.incoming.MarkMessageIsProcessed(ctx, msg.ID()); err != nil {
+				return nil, errors.Wrap(err, "mark is processed")
+			}
+		}
+
+	case *channels.TransferAccept:
+		if err := c.transferAccept(ctx, wallet, msg, wrap, channelsMsg); err != nil {
+			return nil, errors.Wrap(err, "transfer accept")
 		}
 	}
 
@@ -337,15 +437,15 @@ func (c *Channel) ProcessMessage(ctx context.Context,
 		return nil, nil
 	}
 
-	if wMessage.Signature.PublicKey != nil {
-		if !wMessage.Signature.PublicKey.Equal(*publicKey) {
+	if wrap.Signature.PublicKey != nil {
+		if !wrap.Signature.PublicKey.Equal(*publicKey) {
 			return nil, ErrWrongPublicKey
 		}
 	} else {
-		wMessage.Signature.SetPublicKey(publicKey)
+		wrap.Signature.SetPublicKey(publicKey)
 	}
 
-	if err := wMessage.Signature.Verify(); err != nil {
+	if err := wrap.Signature.Verify(); err != nil {
 		var code uint32
 		if errors.Cause(err) == channels.ErrInvalidSignature {
 			code = channels.SignedRejectCodeInvalidSignature
@@ -426,6 +526,7 @@ func LoadChannel(ctx context.Context, store storage.StreamReadWriter,
 	key bitcoin.Key) (*Channel, error) {
 
 	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", hash))
+	fmt.Printf("Loading channel %s\n", hash)
 
 	path := channelPath(hash)
 	channel := newChannel(hash, key, store, peerChannelsFactory)
@@ -433,10 +534,12 @@ func LoadChannel(ctx context.Context, store storage.StreamReadWriter,
 		return nil, errors.Wrap(err, "read")
 	}
 
+	fmt.Printf("Loading incoming\n")
 	if err := channel.incoming.Load(ctx); err != nil {
 		return nil, errors.Wrap(err, "incoming")
 	}
 
+	fmt.Printf("Loading outgoing\n")
 	if err := channel.outgoing.Load(ctx); err != nil {
 		return nil, errors.Wrap(err, "outgoing")
 	}

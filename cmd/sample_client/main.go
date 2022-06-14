@@ -82,7 +82,8 @@ func main() {
 
 	peerChannelsFactory := peer_channels.NewFactory()
 
-	client := sample_client.NewClient(cfg.BaseKey, store, peerChannelsFactory, spyNodeClient)
+	client := sample_client.NewClient(cfg.BaseKey, store, peerChannelsFactory, spyNodeClient,
+		spyNodeClient, spyNodeClient)
 	spyNodeClient.RegisterHandler(client)
 
 	if err := client.Load(ctx); err != nil {
@@ -94,6 +95,8 @@ func main() {
 		listen(ctx, client, spyNodeClient, args[2:]...)
 	case "list":
 		list(ctx, client, args[2:]...)
+	case "display":
+		display(ctx, client, args[2:]...)
 	case "receive":
 		receive(ctx, client, spyNodeClient, args[2:]...)
 	case "mark":
@@ -102,10 +105,81 @@ func main() {
 		establish(ctx, client, args[2:]...)
 	case "order":
 		order(ctx, client, args[2:]...)
+	case "transfer":
+		transfer(ctx, client, spyNodeClient, args[2:]...)
 	}
 
 	if err := client.Save(ctx); err != nil {
 		logger.Error(ctx, "Failed to save client : %s", err)
+	}
+}
+
+func transfer(ctx context.Context, client *sample_client.Client,
+	spClient *spyNodeClient.RemoteClient, args ...string) {
+	if len(args) != 2 {
+		fmt.Printf("Missing arguments : channels_sample transfer <channel_hash> <message_id>\n")
+		return
+	}
+
+	channelHash, err := bitcoin.NewHash32FromStr(args[0])
+	if err != nil {
+		fmt.Printf("Invalid channel hash : %s\n", err)
+		return
+	}
+
+	messageID, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil {
+		fmt.Printf("Invalid message ID : %s\n", err)
+		return
+	}
+
+	channel, err := client.ChannelsClient.GetChannelByHash(*channelHash)
+	if err != nil {
+		fmt.Printf("Failed to get channel : %s\n", err)
+		return
+	}
+
+	message, err := channel.GetIncomingMessage(ctx, messageID)
+	if err != nil {
+		fmt.Printf("Failed to get message : %s\n", err)
+		return
+	}
+
+	wrap, err := channels.Unwrap(message.Payload())
+	if err != nil {
+		fmt.Printf("Failed to unwrap message : %s\n", err)
+		return
+	}
+
+	request, ok := wrap.Message.(*channels.TransferRequest)
+	if !ok {
+		fmt.Printf("Message is not a transfer request\n")
+		return
+	}
+
+	if err := spClient.Connect(ctx); err != nil {
+		fmt.Printf("Failed to connect to spynode : %s\n", err)
+		return
+	}
+	defer spClient.Close(ctx)
+
+	if _, err := client.Wallet.FundTx(ctx, *channelHash, request.Tx, request.Fees); err != nil {
+		fmt.Printf("Failed to fund transfer : %s\n", err)
+		return
+	}
+
+	if err := client.Wallet.SignTx(ctx, *channelHash, request.Tx); err != nil {
+		fmt.Printf("Failed to sign transfer : %s\n", err)
+		return
+	}
+
+	transfer := &channels.Transfer{
+		Tx: request.Tx,
+	}
+
+	if _, err := channel.SendMessage(ctx, transfer, &messageID); err != nil {
+		fmt.Printf("Failed to send transfer : %s\n", err)
+		return
 	}
 }
 
@@ -243,7 +317,7 @@ func receive(ctx context.Context, client *sample_client.Client,
 
 	if err := spClient.Connect(ctx); err != nil {
 		fmt.Printf("Failed to connect to spynode : %s\n", err)
-		os.Exit(1)
+		return
 	}
 	defer spClient.Close(ctx)
 
@@ -272,11 +346,65 @@ func receive(ctx context.Context, client *sample_client.Client,
 	}
 }
 
+func display(ctx context.Context, client *sample_client.Client, args ...string) {
+	if len(args) != 2 {
+		fmt.Printf("Missing arguments : channels_sample display <channel_hash> <message_id>\n")
+		return
+	}
+
+	channelHash, err := bitcoin.NewHash32FromStr(args[0])
+	if err != nil {
+		fmt.Printf("Invalid channel hash : %s\n", err)
+		return
+	}
+
+	messageID, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil {
+		fmt.Printf("Invalid message ID : %s\n", err)
+		return
+	}
+
+	channel, err := client.ChannelsClient.GetChannelByHash(*channelHash)
+	if err != nil {
+		fmt.Printf("Failed to get channel : %s\n", err)
+		return
+	}
+
+	msg, err := channel.GetOutgoingMessage(ctx, messageID)
+	if err != nil {
+		fmt.Printf("Failed to get message : %s\n", err)
+		return
+	}
+
+	wrap, err := channels.Unwrap(msg.Payload())
+	if err != nil {
+		fmt.Printf("Failed to unwrap message : %s\n", err)
+		return
+	}
+
+	js, err := json.MarshalIndent(wrap, "", "  ")
+	if err != nil {
+		fmt.Printf("Failed to marshal message : %s\n", err)
+		return
+	}
+
+	fmt.Printf("%s\n", js)
+
+	if transfer, ok := wrap.Message.(*channels.Transfer); ok {
+		if err := client.Wallet.VerifyFee(ctx, channel.Hash(), transfer.Tx,
+			channels.DefaultFeeRequirements); err != nil {
+			fmt.Printf("Failed to verify fee : %s\n", err)
+		} else {
+			fmt.Printf("Verified fee\n")
+		}
+	}
+}
+
 func list(ctx context.Context, client *sample_client.Client, args ...string) {
 	msgs, err := client.ChannelsClient.GetUnprocessedMessages(ctx)
 	if err != nil {
 		fmt.Printf("Failed to get unprocessed messages : %s\n", err)
-		os.Exit(1)
+		return
 	}
 
 	fmt.Printf("%d messages:\n", len(msgs))
@@ -284,13 +412,13 @@ func list(ctx context.Context, client *sample_client.Client, args ...string) {
 	for _, msg := range msgs {
 		wrap, err := channels.Unwrap(msg.Message.Payload())
 		if err != nil {
-			fmt.Printf("Failed to get unwrap message : %s\n", err)
+			fmt.Printf("Failed to unwrap message : %s\n", err)
 			continue
 		}
 
 		js, err := json.MarshalIndent(wrap, "", "  ")
 		if err != nil {
-			fmt.Printf("Failed to get marshal message : %s\n", err)
+			fmt.Printf("Failed to marshal message : %s\n", err)
 			continue
 		}
 
@@ -304,7 +432,7 @@ func listen(ctx context.Context, client *sample_client.Client,
 
 	if len(args) > 0 {
 		fmt.Printf("No arguments for listen command\n")
-		os.Exit(1)
+		return
 	}
 
 	var wait sync.WaitGroup

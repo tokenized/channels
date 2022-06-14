@@ -12,6 +12,8 @@ import (
 
 const (
 	ResponseVersion = uint8(0)
+
+	ResponseRejectCodeMessageNotFound = uint32(1)
 )
 
 var (
@@ -72,4 +74,13 @@ func ParseResponse(payload envelope.Data) (*Response, envelope.Data, error) {
 
 	payload.Payload = payload.Payload[2:]
 	return result, payload, nil
+}
+
+func ResponseRejectCodeToString(code uint32) string {
+	switch code {
+	case ResponseRejectCodeMessageNotFound:
+		return "message_not_found"
+	default:
+		return "parse_error"
+	}
 }

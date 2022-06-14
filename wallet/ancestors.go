@@ -23,35 +23,28 @@ var (
 	FeeOverpaid = errors.New("Fee Overpaid")
 )
 
-// VerifyFeeQuote verifies that the tx meets the current fee quote.
+// VerifyFee verifies that the tx meets the specified fee requirements.
 // Note: If VerifyExpandedTx returned `MissingInput` then this function will fail as the input
 // values are not available.
-func (w *Wallet) VerifyFeeQuote(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) error {
+func (w *Wallet) VerifyFee(ctx context.Context, contextID bitcoin.Hash32,
+	etx *channels.ExpandedTx, requirements channels.FeeRequirements) error {
 
 	fee, err := etx.CalculateFee()
 	if err != nil {
 		return errors.Wrap(err, "fee")
 	}
 
-	// TODO Retain invoice tx with fee quote. --ce
-	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
-	if err != nil {
-		return errors.Wrap(err, "fee quotes")
-	}
-	feeRequirements := channels.ConvertToFeeRequirements(feeQuotes)
-
 	feeByteCounts := channels.TxFeeByteCounts(etx.Tx)
 	if err != nil {
 		return errors.Wrap(err, "fee byte counts")
 	}
-	requiredFee := feeRequirements.RequiredFee(feeByteCounts)
 
-	if fee < (requiredFee*100)/98 { // less than 98% of required fee
+	requiredFee := requirements.RequiredFee(feeByteCounts)
+	if fee < (requiredFee*98)/100 { // less than 98% of required fee
 		return errors.Wrapf(InsufficientFee, "%d < %d", fee, requiredFee)
 	}
 
-	standardRequirement := feeRequirements.GetStandardRequirement()
+	standardRequirement := requirements.GetStandardRequirement()
 	standardRequiredFee := (uint64(etx.Tx.SerializeSize()) * standardRequirement.Satoshis) /
 		standardRequirement.Bytes
 	if standardRequiredFee < minimumFeeOverpaid {
