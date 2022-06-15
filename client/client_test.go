@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/merkle_proofs"
+	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
@@ -21,10 +23,11 @@ func Test_Initiate(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
 	store := storage.NewMockStorage()
 	peerChannelsFactory := peer_channels.NewFactory()
+	protocols := BuildChannelsProtocols()
 
 	/******************************** Create User 1 Client ****************************************/
 	/**********************************************************************************************/
-	client1 := MockClient(ctx, store, peerChannelsFactory)
+	client1 := MockClient(ctx, store, protocols, peerChannelsFactory)
 	user1PublicChannel, err := client1.CreateRelationshipInitiationChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
@@ -34,13 +37,13 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to create channel : %s", err)
 	}
 	user1Name := "User 1"
-	user1Identity := &channels.Identity{
+	user1Identity := &relationships.Identity{
 		Name: &user1Name,
 	}
 
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
-	client2 := MockClient(ctx, store, peerChannelsFactory)
+	client2 := MockClient(ctx, store, protocols, peerChannelsFactory)
 	user2Channel, err := client2.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
@@ -51,7 +54,7 @@ func Test_Initiate(t *testing.T) {
 	}
 
 	user2Name := "User 2"
-	user2Identity := &channels.Identity{
+	user2Identity := &relationships.Identity{
 		Name: &user2Name,
 	}
 
@@ -97,8 +100,8 @@ func Test_Initiate(t *testing.T) {
 
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
-	initiation := &channels.RelationshipInitiation{
-		Configuration: channels.ChannelConfiguration{
+	initiation := &relationships.Initiation{
+		Configuration: relationships.ChannelConfiguration{
 			PublicKey:          user2Channel.Key().PublicKey(),
 			PeerChannels:       user2Channel.IncomingPeerChannels(),
 			SupportedProtocols: SupportedProtocols(),
@@ -126,7 +129,7 @@ func Test_Initiate(t *testing.T) {
 
 	initiationFound := false
 	for _, channelMessage := range user1Messages {
-		wMessage, err := channels.Unwrap(channelMessage.Message.Payload())
+		wMessage, err := protocols.Unwrap(channelMessage.Message.Payload())
 		if err != nil {
 			t.Fatalf("Failed to umwrap message : %s", err)
 		}
@@ -146,7 +149,7 @@ func Test_Initiate(t *testing.T) {
 		js, err := json.MarshalIndent(wMessage.Message, "", "  ")
 		t.Logf("User 1 message : %s", js)
 
-		initiation, ok := wMessage.Message.(*channels.RelationshipInitiation)
+		initiation, ok := wMessage.Message.(*relationships.Initiation)
 		if !ok {
 			continue
 		}
@@ -164,14 +167,15 @@ func Test_Initiate(t *testing.T) {
 				user2Channel.IncomingPeerChannels()[0].ID)
 		}
 
-		if err := user1Channel.InitializeRelationship(ctx, channelMessage.Message.Payload(),
-			initiation.Configuration.PublicKey, initiation.Configuration.PeerChannels); err != nil {
+		if err := user1Channel.InitializeRelationship(ctx, protocols,
+			channelMessage.Message.Payload(), initiation.Configuration.PublicKey,
+			initiation.Configuration.PeerChannels); err != nil {
 			t.Fatalf("Failed to initialize channel : %s", err)
 		}
 
 		// Respond to relationship initiation
-		responseInitiation := &channels.RelationshipInitiation{
-			Configuration: channels.ChannelConfiguration{
+		responseInitiation := &relationships.Initiation{
+			Configuration: relationships.ChannelConfiguration{
 				PublicKey:          user1Channel.Key().PublicKey(),
 				PeerChannels:       user1Channel.IncomingPeerChannels(),
 				SupportedProtocols: SupportedProtocols(),
@@ -208,7 +212,7 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to get message : %s", err)
 	}
 
-	wMessage, err := channels.Unwrap(user2Message.Payload())
+	wMessage, err := protocols.Unwrap(user2Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to umwrap message : %s", err)
 	}
@@ -228,7 +232,7 @@ func Test_Initiate(t *testing.T) {
 	js, err := json.MarshalIndent(wMessage.Message, "", "  ")
 	t.Logf("User 2 message : %s", js)
 
-	msg, ok := wMessage.Message.(*channels.RelationshipInitiation)
+	msg, ok := wMessage.Message.(*relationships.Initiation)
 	if !ok {
 		t.Fatalf("Message not relationship initiation")
 	}
@@ -267,10 +271,11 @@ func Test_Response(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
 	store := storage.NewMockStorage()
 	peerChannelsFactory := peer_channels.NewFactory()
+	protocols := BuildChannelsProtocols()
 
 	/******************************** Create User 1 Client ****************************************/
 	/**********************************************************************************************/
-	client1 := MockClient(ctx, store, peerChannelsFactory)
+	client1 := MockClient(ctx, store, protocols, peerChannelsFactory)
 	user1PublicChannel, err := client1.CreateRelationshipInitiationChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
@@ -278,7 +283,7 @@ func Test_Response(t *testing.T) {
 
 	/******************************** Create User 2 Client ****************************************/
 	/**********************************************************************************************/
-	client2 := MockClient(ctx, store, peerChannelsFactory)
+	client2 := MockClient(ctx, store, protocols, peerChannelsFactory)
 	user2Channel, err := client2.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
 		t.Fatalf("Failed to create channel : %s", err)
@@ -346,7 +351,7 @@ func Test_Response(t *testing.T) {
 
 	fakeMerkleProof := MockMerkleProof(previousTx)
 
-	merkleProof := &channels.MerkleProof{
+	merkleProof := &merkle_proofs.MerkleProof{
 		MerkleProof: fakeMerkleProof,
 	}
 
@@ -371,12 +376,12 @@ func Test_Response(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(user1Messages), 1)
 	}
 
-	wMessage, err := channels.Unwrap(user1Messages[0].Message.Payload())
+	wMessage, err := protocols.Unwrap(user1Messages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
 
-	if _, ok := wMessage.Message.(*channels.MerkleProof); !ok {
+	if _, ok := wMessage.Message.(*merkle_proofs.MerkleProof); !ok {
 		t.Errorf("Message not a merkle proof")
 	}
 
@@ -385,7 +390,7 @@ func Test_Response(t *testing.T) {
 		t.Fatalf("No auto response provided")
 	}
 
-	wMessage, err = channels.Unwrap(autoResponse)
+	wMessage, err = protocols.Unwrap(autoResponse)
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}

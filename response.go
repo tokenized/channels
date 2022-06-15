@@ -46,6 +46,7 @@ const (
 	StatusSystemIssue = Status(7)
 
 	ResponseStatusMessageNotFound = uint32(1)
+	ResponseStatusWrongMessage    = uint32(2)
 )
 
 var (
@@ -65,37 +66,9 @@ type Response struct {
 
 func (r Response) Error() string {
 	if len(r.Note) > 0 {
-		return fmt.Sprintf("%s: %s", r.CodeString(), r.Note)
+		return fmt.Sprintf("%s:%d %s", r.CodeProtocolID.String(), r.Code, r.Note)
 	}
-	return r.CodeString()
-}
-
-func (r Response) CodeString() string {
-	if bytes.Equal(r.CodeProtocolID, ProtocolIDSignedMessages) {
-		return "signed:" + SignedStatusToString(r.Code)
-	}
-
-	if bytes.Equal(r.CodeProtocolID, ProtocolIDMerkleProof) {
-		return "merkle proof:" + MerkleProofStatusToString(r.Code)
-	}
-
-	if bytes.Equal(r.CodeProtocolID, ProtocolIDRelationships) {
-		return "relationships:" + RelationshipsStatusToString(r.Code)
-	}
-
-	if bytes.Equal(r.CodeProtocolID, ProtocolIDInvoices) {
-		return "invoices:" + InvoicesStatusToString(r.Code)
-	}
-
-	if bytes.Equal(r.CodeProtocolID, ProtocolIDResponse) {
-		return "response:" + ResponseStatusToString(r.Code)
-	}
-
-	if r.Code == 0 {
-		return r.CodeProtocolID.String() + ":parse"
-	}
-
-	return r.CodeProtocolID.String() + ":unknown"
+	return fmt.Sprintf("%s:%d", r.CodeProtocolID.String(), r.Code)
 }
 
 func (*Response) IsWrapperType() {}
@@ -169,6 +142,8 @@ func ResponseStatusToString(code uint32) string {
 	switch code {
 	case ResponseStatusMessageNotFound:
 		return "message_not_found"
+	case ResponseStatusWrongMessage:
+		return "wrong_message"
 	default:
 		return "parse_error"
 	}

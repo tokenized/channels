@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/tokenized/channels"
 	channelsClient "github.com/tokenized/channels/client"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
@@ -30,7 +31,7 @@ var (
 	walletHash, _ = bitcoin.NewHash32FromStr("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
 )
 
-func NewClient(key bitcoin.Key, store storage.StreamStorage,
+func NewClient(key bitcoin.Key, store storage.StreamStorage, protocols *channels.Protocols,
 	peerChannelsFactory *peer_channels.Factory, merkleProofVerifier wallet.MerkleProofVerifier,
 	feeQuoter wallet.FeeQuoter, spyNodeClient spyNodeClient.Client) *Client {
 
@@ -48,10 +49,11 @@ func NewClient(key bitcoin.Key, store storage.StreamStorage,
 		walletKey)
 
 	return &Client{
-		ChannelsClient: channelsClient.NewClient(clientKey, store, wallet, peerChannelsFactory),
-		Wallet:         wallet,
-		spyNodeClient:  spyNodeClient,
-		store:          store,
+		ChannelsClient: channelsClient.NewClient(clientKey, store, protocols, wallet,
+			peerChannelsFactory),
+		Wallet:        wallet,
+		spyNodeClient: spyNodeClient,
+		store:         store,
 	}
 }
 

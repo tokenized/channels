@@ -8,6 +8,9 @@ import (
 	"sync"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/invoices"
+	"github.com/tokenized/channels/merkle_proofs"
+	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
@@ -150,10 +153,10 @@ func (c *Channel) GetIncomingPeerChannel(id string) *channels.PeerChannel {
 	return nil
 }
 
-func (c *Channel) InitializeRelationship(ctx context.Context, payload bitcoin.Script,
-	publicKey bitcoin.PublicKey, outgoing channels.PeerChannels) error {
+func (c *Channel) InitializeRelationship(ctx context.Context, protocols *channels.Protocols,
+	payload bitcoin.Script, publicKey bitcoin.PublicKey, outgoing channels.PeerChannels) error {
 
-	wMessage, err := channels.Unwrap(payload)
+	wMessage, err := protocols.Unwrap(payload)
 	if err != nil {
 		return errors.Wrap(err, "unwrap")
 	}
@@ -289,12 +292,12 @@ func (c *Channel) SetExternalPublicKey(ctx context.Context, publicKey bitcoin.Pu
 	return nil
 }
 
-func (c *Channel) ProcessMessage(ctx context.Context, wallet Wallet,
-	message *peer_channels.Message) (*Message, error) {
+func (c *Channel) ProcessMessage(ctx context.Context, protocols *channels.Protocols,
+	wallet Wallet, message *peer_channels.Message) (*Message, error) {
 
 	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", c.Hash()))
 
-	wrap, err := channels.Unwrap(bitcoin.Script(message.Payload))
+	wrap, err := protocols.Unwrap(bitcoin.Script(message.Payload))
 	if err != nil {
 		return nil, errors.Wrap(err, "unwrap")
 	}
@@ -321,7 +324,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, wallet Wallet,
 		}, "Response")
 	}
 
-	if initiation, ok := wrap.Message.(*channels.RelationshipInitiation); ok {
+	if initiation, ok := wrap.Message.(*relationships.Initiation); ok {
 		if err := c.relationshipInitiation(ctx, wallet, msg, wrap, initiation); err != nil {
 			return nil, errors.Wrap(err, "relationship initiation")
 		}
@@ -333,8 +336,8 @@ func (c *Channel) ProcessMessage(ctx context.Context, wallet Wallet,
 	if publicKey == nil {
 		if err := msg.Reject(&channels.Response{
 			Status:         channels.StatusReject,
-			CodeProtocolID: channels.ProtocolIDRelationships,
-			Code:           channels.RelationshipsStatusNotInitiated,
+			CodeProtocolID: relationships.ProtocolID,
+			Code:           relationships.StatusNotInitiated,
 		}); err != nil {
 			return nil, errors.Wrap(err, "no relationship: reject")
 		}
@@ -367,13 +370,14 @@ func (c *Channel) ProcessMessage(ctx context.Context, wallet Wallet,
 	}
 
 	switch channelsMsg := wrap.Message.(type) {
-	case *channels.MerkleProof:
+	case *merkle_proofs.MerkleProof:
 		if err := c.merkleProof(ctx, wallet, msg, wrap, channelsMsg); err != nil {
 			return nil, errors.Wrap(err, "merkle proof")
 		}
 
-	case *channels.TransferAccept:
-		if err := c.transferAccept(ctx, wallet, msg, wrap, channelsMsg); err != nil {
+	case *invoices.TransferAccept:
+		if err := c.transferAccept(ctx, protocols, wallet, msg, wrap,
+			channelsMsg); err != nil {
 			return nil, errors.Wrap(err, "transfer accept")
 		}
 
@@ -384,14 +388,14 @@ func (c *Channel) ProcessMessage(ctx context.Context, wallet Wallet,
 }
 
 func (c *Channel) relationshipInitiation(ctx context.Context, wallet Wallet, msg *Message,
-	wrap *channels.WrappedMessage, initiation *channels.RelationshipInitiation) error {
+	wrap *channels.WrappedMessage, initiation *relationships.Initiation) error {
 
 	publicKey := c.GetExternalPublicKey()
 	if publicKey != nil {
 		if err := msg.Reject(&channels.Response{
 			Status:         channels.StatusReject,
-			CodeProtocolID: channels.ProtocolIDRelationships,
-			Code:           channels.RelationshipsStatusAlreadyInitiated,
+			CodeProtocolID: relationships.ProtocolID,
+			Code:           relationships.StatusAlreadyInitiated,
 		}); err != nil {
 			return errors.Wrap(err, "relationship already initiated: reject")
 		}
@@ -451,7 +455,7 @@ func (c *Channel) relationshipInitiation(ctx context.Context, wallet Wallet, msg
 }
 
 func (c *Channel) merkleProof(ctx context.Context, wallet Wallet, msg *Message,
-	wrap *channels.WrappedMessage, merkleProof *channels.MerkleProof) error {
+	wrap *channels.WrappedMessage, merkleProof *merkle_proofs.MerkleProof) error {
 	if wallet == nil {
 		return nil
 	}
@@ -467,8 +471,10 @@ func (c *Channel) merkleProof(ctx context.Context, wallet Wallet, msg *Message,
 	return nil
 }
 
-func (c *Channel) transferAccept(ctx context.Context, wallet Wallet, msg *Message,
-	wrap *channels.WrappedMessage, transferAccept *channels.TransferAccept) error {
+func (c *Channel) transferAccept(ctx context.Context, protocols *channels.Protocols,
+	wallet Wallet, msg *Message, wrap *channels.WrappedMessage,
+	transferAccept *invoices.TransferAccept) error {
+
 	if wallet == nil {
 		return nil
 	}
@@ -489,8 +495,8 @@ func (c *Channel) transferAccept(ctx context.Context, wallet Wallet, msg *Messag
 	if wrap.Response == nil {
 		if err := msg.Reject(&channels.Response{
 			Status:         channels.StatusInvalid,
-			CodeProtocolID: channels.ProtocolIDInvoices,
-			Code:           channels.InvoicesStatusMissingResponseID,
+			CodeProtocolID: invoices.ProtocolID,
+			Code:           invoices.StatusMissingResponseID,
 			Note:           "TransferAccept missing response id",
 		}); err != nil {
 			return errors.Wrap(err, "response id missing: reject")
@@ -515,18 +521,18 @@ func (c *Channel) transferAccept(ctx context.Context, wallet Wallet, msg *Messag
 		return errors.Wrap(err, "get message")
 	}
 
-	transferWrap, err := channels.Unwrap(bitcoin.Script(transferMsg.Payload()))
+	transferWrap, err := protocols.Unwrap(bitcoin.Script(transferMsg.Payload()))
 	if err != nil {
 		return errors.Wrap(err, "unwrap")
 	}
 
-	transfer, ok := transferWrap.Message.(*channels.Transfer)
+	transfer, ok := transferWrap.Message.(*invoices.Transfer)
 	if !ok {
 		if err := msg.Reject(&channels.Response{
 			Status:         channels.StatusInvalid,
 			CodeProtocolID: channels.ProtocolIDResponse,
-			Code:           channels.ResponseStatusMessageNotFound,
-			Note:           "Response message not transfer",
+			Code:           channels.ResponseStatusWrongMessage,
+			Note:           "Response message not a transfer",
 		}); err != nil {
 			return errors.Wrap(err, "response id not transfer: reject")
 		}

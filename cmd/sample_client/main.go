@@ -11,8 +11,11 @@ import (
 	"syscall"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/client"
 	channelsClient "github.com/tokenized/channels/client"
 	"github.com/tokenized/channels/cmd/sample_client/sample_client"
+	"github.com/tokenized/channels/invoices"
+	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/config"
 	"github.com/tokenized/pkg/bitcoin"
@@ -80,10 +83,11 @@ func main() {
 		logger.Fatal(ctx, "Failed to create spynode remote client : %s", err)
 	}
 
+	protocols := client.BuildChannelsProtocols()
 	peerChannelsFactory := peer_channels.NewFactory()
 
-	client := sample_client.NewClient(cfg.BaseKey, store, peerChannelsFactory, spyNodeClient,
-		spyNodeClient, spyNodeClient)
+	client := sample_client.NewClient(cfg.BaseKey, store, protocols, peerChannelsFactory,
+		spyNodeClient, spyNodeClient, spyNodeClient)
 	spyNodeClient.RegisterHandler(client)
 
 	if err := client.Load(ctx); err != nil {
@@ -94,9 +98,9 @@ func main() {
 	case "listen":
 		listen(ctx, client, spyNodeClient, args[2:]...)
 	case "list":
-		list(ctx, client, args[2:]...)
+		list(ctx, protocols, client, args[2:]...)
 	case "display":
-		display(ctx, client, args[2:]...)
+		display(ctx, protocols, client, args[2:]...)
 	case "receive":
 		receive(ctx, client, spyNodeClient, args[2:]...)
 	case "mark":
@@ -106,7 +110,7 @@ func main() {
 	case "order":
 		order(ctx, client, args[2:]...)
 	case "transfer":
-		transfer(ctx, client, spyNodeClient, args[2:]...)
+		transfer(ctx, protocols, client, spyNodeClient, args[2:]...)
 	}
 
 	if err := client.Save(ctx); err != nil {
@@ -114,7 +118,7 @@ func main() {
 	}
 }
 
-func transfer(ctx context.Context, client *sample_client.Client,
+func transfer(ctx context.Context, protocols *channels.Protocols, client *sample_client.Client,
 	spClient *spyNodeClient.RemoteClient, args ...string) {
 	if len(args) != 2 {
 		fmt.Printf("Missing arguments : channels_sample transfer <channel_hash> <message_id>\n")
@@ -145,13 +149,13 @@ func transfer(ctx context.Context, client *sample_client.Client,
 		return
 	}
 
-	wrap, err := channels.Unwrap(message.Payload())
+	wrap, err := protocols.Unwrap(message.Payload())
 	if err != nil {
 		fmt.Printf("Failed to unwrap message : %s\n", err)
 		return
 	}
 
-	request, ok := wrap.Message.(*channels.TransferRequest)
+	request, ok := wrap.Message.(*invoices.TransferRequest)
 	if !ok {
 		fmt.Printf("Message is not a transfer request\n")
 		return
@@ -173,7 +177,7 @@ func transfer(ctx context.Context, client *sample_client.Client,
 		return
 	}
 
-	transfer := &channels.Transfer{
+	transfer := &invoices.Transfer{
 		Tx: request.Tx,
 	}
 
@@ -202,11 +206,11 @@ func order(ctx context.Context, client *sample_client.Client, args ...string) {
 	}
 
 	oneK := uint64(1000)
-	purchaseOrder := &channels.PurchaseOrder{
-		Items: channels.InvoiceItems{
+	purchaseOrder := &invoices.PurchaseOrder{
+		Items: invoices.InvoiceItems{
 			{
 				ID: bitcoin.Hex("standard"),
-				Price: channels.Price{
+				Price: invoices.Price{
 					Quantity: &oneK,
 				},
 			},
@@ -283,12 +287,12 @@ func establish(ctx context.Context, client *sample_client.Client, args ...string
 	}
 
 	userName := "UserName"
-	userIdentity := channels.Identity{
+	userIdentity := relationships.Identity{
 		Name: &userName,
 	}
 
-	initiation := &channels.RelationshipInitiation{
-		Configuration: channels.ChannelConfiguration{
+	initiation := &relationships.Initiation{
+		Configuration: relationships.ChannelConfiguration{
 			PublicKey:          channel.Key().PublicKey(),
 			SupportedProtocols: channelsClient.SupportedProtocols(),
 		},
@@ -346,7 +350,9 @@ func receive(ctx context.Context, client *sample_client.Client,
 	}
 }
 
-func display(ctx context.Context, client *sample_client.Client, args ...string) {
+func display(ctx context.Context, protocols *channels.Protocols, client *sample_client.Client,
+	args ...string) {
+
 	if len(args) != 2 {
 		fmt.Printf("Missing arguments : channels_sample display <channel_hash> <message_id>\n")
 		return
@@ -376,7 +382,7 @@ func display(ctx context.Context, client *sample_client.Client, args ...string) 
 		return
 	}
 
-	wrap, err := channels.Unwrap(msg.Payload())
+	wrap, err := protocols.Unwrap(msg.Payload())
 	if err != nil {
 		fmt.Printf("Failed to unwrap message : %s\n", err)
 		return
@@ -390,7 +396,7 @@ func display(ctx context.Context, client *sample_client.Client, args ...string) 
 
 	fmt.Printf("%s\n", js)
 
-	if transfer, ok := wrap.Message.(*channels.Transfer); ok {
+	if transfer, ok := wrap.Message.(*invoices.Transfer); ok {
 		if err := client.Wallet.VerifyFee(ctx, channel.Hash(), transfer.Tx,
 			channels.DefaultFeeRequirements); err != nil {
 			fmt.Printf("Failed to verify fee : %s\n", err)
@@ -400,7 +406,9 @@ func display(ctx context.Context, client *sample_client.Client, args ...string) 
 	}
 }
 
-func list(ctx context.Context, client *sample_client.Client, args ...string) {
+func list(ctx context.Context, protocols *channels.Protocols, client *sample_client.Client,
+	args ...string) {
+
 	msgs, err := client.ChannelsClient.GetUnprocessedMessages(ctx)
 	if err != nil {
 		fmt.Printf("Failed to get unprocessed messages : %s\n", err)
@@ -410,7 +418,7 @@ func list(ctx context.Context, client *sample_client.Client, args ...string) {
 	fmt.Printf("%d messages:\n", len(msgs))
 
 	for _, msg := range msgs {
-		wrap, err := channels.Unwrap(msg.Message.Payload())
+		wrap, err := protocols.Unwrap(msg.Message.Payload())
 		if err != nil {
 			fmt.Printf("Failed to unwrap message : %s\n", err)
 			continue

@@ -27,6 +27,11 @@ type PeriodType uint8
 type Timestamp uint64 // Seconds since UNIX epoch
 type Duration uint64  // Seconds
 
+type Period struct {
+	Count uint64     `json:"count"`
+	Type  PeriodType `json:"type"`
+}
+
 func Now() Timestamp {
 	return Timestamp(time.Now().Unix())
 }

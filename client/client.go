@@ -8,6 +8,10 @@ import (
 	"sync"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/invoices"
+	"github.com/tokenized/channels/merkle_proofs"
+	channelsPeerChannels "github.com/tokenized/channels/peer_channels"
+	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
@@ -43,6 +47,8 @@ type Wallet interface {
 }
 
 type Client struct {
+	protocols *channels.Protocols
+
 	baseKey  bitcoin.Key
 	channels Channels
 
@@ -70,21 +76,34 @@ func SupportedProtocols() envelope.ProtocolIDs {
 	return envelope.ProtocolIDs{
 		channels.ProtocolIDResponse,
 		channels.ProtocolIDSignedMessages,
-		channels.ProtocolIDRelationships,
-		channels.ProtocolIDInvoices,
-		channels.ProtocolIDMerkleProof,
-		channels.ProtocolIDPeerChannels,
+		relationships.ProtocolID,
+		invoices.ProtocolID,
+		merkle_proofs.ProtocolID,
+		channelsPeerChannels.ProtocolID,
 	}
 }
 
+func BuildChannelsProtocols() *channels.Protocols {
+	protocols := channels.NewProtocols(merkle_proofs.NewProtocol(), invoices.NewProtocol(),
+		relationships.NewProtocol(), channelsPeerChannels.NewProtocol())
+
+	return protocols
+}
+
 func NewClient(baseKey bitcoin.Key, store storage.StreamReadWriter,
-	wallet Wallet, peerChannelsFactory *peer_channels.Factory) *Client {
+	protocols *channels.Protocols, wallet Wallet,
+	peerChannelsFactory *peer_channels.Factory) *Client {
 	return &Client{
+		protocols:           protocols,
 		baseKey:             baseKey,
 		store:               store,
 		wallet:              wallet,
 		peerChannelsFactory: peerChannelsFactory,
 	}
+}
+
+func (c *Client) Protocols() *channels.Protocols {
+	return c.protocols
 }
 
 func (c *Client) SetPeerChannelsURL(url string) {
@@ -269,8 +288,8 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 	hash, key := wallet.GenerateHashKey(c.baseKey, contextID)
 	publicKey := key.PublicKey()
 
-	channelID := channels.CalculatePeerChannelsServiceChannelID(publicKey)
-	channelToken := channels.CalculatePeerChannelsServiceChannelToken(publicKey)
+	channelID := channelsPeerChannels.CalculatePeerChannelsServiceChannelID(publicKey)
+	channelToken := channelsPeerChannels.CalculatePeerChannelsServiceChannelToken(publicKey)
 
 	peerChannels := channels.PeerChannels{
 		{
@@ -570,7 +589,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 func (c *Client) processMessage(ctx context.Context, channel *Channel,
 	message *peer_channels.Message) error {
 
-	result, err := channel.ProcessMessage(ctx, c.wallet, message)
+	result, err := channel.ProcessMessage(ctx, c.protocols, c.wallet, message)
 	if err != nil {
 		return errors.Wrap(err, "channel")
 	}

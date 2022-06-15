@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/invoices"
+	"github.com/tokenized/channels/merkle_proofs"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
@@ -21,9 +23,10 @@ import (
 func Test_Invoice(t *testing.T) {
 	ctx := logger.ContextWithLogger(context.Background(), true, true, "")
 	store := storage.NewMockStorage()
+	protocols := BuildChannelsProtocols()
 	peerChannelsFactory := peer_channels.NewFactory()
 
-	merchant, buyer := MockRelatedUsers(ctx, store, peerChannelsFactory)
+	merchant, buyer := MockRelatedUsers(ctx, store, protocols, peerChannelsFactory)
 
 	merchantChannel := merchant.Channel(0)
 
@@ -55,11 +58,11 @@ func Test_Invoice(t *testing.T) {
 
 	one := uint64(1)
 	fiftyK := uint64(50000)
-	invoice := &channels.Invoice{
-		Items: channels.InvoiceItems{
+	invoice := &invoices.Invoice{
+		Items: invoices.InvoiceItems{
 			{
 				ID: []byte("Service A"),
-				Price: channels.Price{
+				Price: invoices.Price{
 					Quantity: &fiftyK,
 				},
 				Quantity: &one,
@@ -96,7 +99,7 @@ func Test_Invoice(t *testing.T) {
 
 	t.Logf("Invoice tx : %s", tx.String())
 
-	invoiceTx := &channels.TransferRequest{
+	invoiceTx := &invoices.TransferRequest{
 		Tx: &channels.ExpandedTx{
 			Tx: tx,
 		},
@@ -135,12 +138,12 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err := channels.Unwrap(buyerMessages[0].Message.Payload())
+	wMessage, err := protocols.Unwrap(buyerMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
 
-	receivedTransferRequest, ok := wMessage.Message.(*channels.TransferRequest)
+	receivedTransferRequest, ok := wMessage.Message.(*invoices.TransferRequest)
 	if !ok {
 		t.Fatalf("Received message not an invoice tx")
 	}
@@ -179,7 +182,7 @@ func Test_Invoice(t *testing.T) {
 
 	fakeMerkleProof := MockMerkleProof(previousTx)
 
-	payment := &channels.Transfer{
+	payment := &invoices.Transfer{
 		Tx: &channels.ExpandedTx{
 			Tx: txb.MsgTx,
 			Ancestors: channels.AncestorTxs{
@@ -216,7 +219,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(merchantMessages), 1)
 	}
 
-	wMessage, err = channels.Unwrap(merchantMessages[0].Message.Payload())
+	wMessage, err = protocols.Unwrap(merchantMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -225,7 +228,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Payment is not a response")
 	}
 
-	receivedTransfer, ok := wMessage.Message.(*channels.Transfer)
+	receivedTransfer, ok := wMessage.Message.(*invoices.Transfer)
 	if !ok {
 		t.Fatalf("Received message not an invoice payment")
 	}
@@ -233,7 +236,7 @@ func Test_Invoice(t *testing.T) {
 	js, _ = json.MarshalIndent(receivedTransfer, "", "  ")
 	t.Logf("Received Invoice Payment : %s", js)
 
-	paymentAccept := &channels.TransferAccept{}
+	paymentAccept := &invoices.TransferAccept{}
 
 	js, _ = json.MarshalIndent(paymentAccept, "", "  ")
 	t.Logf("Invoice Payment Accept : %s", js)
@@ -259,7 +262,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err = channels.Unwrap(buyerMessages[0].Message.Payload())
+	wMessage, err = protocols.Unwrap(buyerMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -268,7 +271,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Payment accept is not a response")
 	}
 
-	receivedPaymentAccept, ok := wMessage.Message.(*channels.TransferAccept)
+	receivedPaymentAccept, ok := wMessage.Message.(*invoices.TransferAccept)
 	if !ok {
 		t.Fatalf("Received message not a payment accept")
 	}
@@ -286,7 +289,7 @@ func Test_Invoice(t *testing.T) {
 
 	fakeMerkleProof = MockMerkleProof(txb.MsgTx)
 
-	merkleProof := &channels.MerkleProof{
+	merkleProof := &merkle_proofs.MerkleProof{
 		MerkleProof: fakeMerkleProof,
 	}
 
@@ -313,7 +316,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(buyerMessages), 1)
 	}
 
-	wMessage, err = channels.Unwrap(buyerMessages[0].Message.Payload())
+	wMessage, err = protocols.Unwrap(buyerMessages[0].Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to unwrap message : %s", err)
 	}
@@ -322,7 +325,7 @@ func Test_Invoice(t *testing.T) {
 		t.Fatalf("Merkle proof should not be a response")
 	}
 
-	receivedMerkleProof, ok := wMessage.Message.(*channels.MerkleProof)
+	receivedMerkleProof, ok := wMessage.Message.(*merkle_proofs.MerkleProof)
 	if !ok {
 		t.Fatalf("Received message not a merkle proof")
 	}

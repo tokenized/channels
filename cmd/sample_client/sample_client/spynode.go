@@ -3,7 +3,7 @@ package sample_client
 import (
 	"context"
 
-	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/merkle_proofs"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
@@ -77,7 +77,7 @@ func (c *Client) applyTxState(ctx context.Context, txid bitcoin.Hash32,
 				if err != nil {
 					logger.Error(ctx, "Failed to get channel : %s", err)
 				} else if channel != nil {
-					if _, err := channel.SendMessage(ctx, &channels.MerkleProof{merkleProof},
+					if _, err := channel.SendMessage(ctx, &merkle_proofs.MerkleProof{merkleProof},
 						nil); err != nil {
 						logger.ErrorWithFields(ctx, []logger.Field{
 							logger.Stringer("channel", channelHash),

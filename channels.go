@@ -3,6 +3,7 @@ package channels
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
@@ -16,6 +17,7 @@ var (
 	ErrInvalidMessage      = errors.New("Invalid Message")
 	ErrUnsupportedVersion  = errors.New("Unsupported Version")
 	ErrUnsupportedProtocol = errors.New("Unsupported Protocol")
+	ErrNotSupported        = errors.New("Not Supported")
 )
 
 // Message is implemented by all channels protocol message types. It is used to identify the
@@ -54,7 +56,68 @@ type WrappedMessage struct {
 	Signature *Signature
 	Response  *Response
 	MessageID *MessageID
-	Message   Writer
+	Message   Message
+}
+
+type Protocol interface {
+	ProtocolID() envelope.ProtocolID
+	Parse(payload envelope.Data) (Message, error)
+	ResponseCodeToString(code uint32) string // convert Response.Code to a string
+}
+
+type Protocols struct {
+	Protocols []Protocol
+
+	lock sync.RWMutex
+}
+
+func NewProtocols(protocols ...Protocol) *Protocols {
+	result := &Protocols{}
+
+	for _, protocol := range protocols {
+		result.Protocols = append(result.Protocols, protocol)
+	}
+
+	return result
+}
+
+func (ps *Protocols) AddProtocols(protocols ...Protocol) {
+	ps.lock.Lock()
+	defer ps.lock.Unlock()
+
+	for _, protocol := range protocols {
+		ps.Protocols = append(ps.Protocols, protocol)
+	}
+}
+
+func (ps *Protocols) GetProtocol(protocolID envelope.ProtocolID) Protocol {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	for _, protocol := range ps.Protocols {
+		if bytes.Equal(protocol.ProtocolID(), protocolID) {
+			return protocol
+		}
+	}
+
+	return nil
+}
+
+func (ps *Protocols) ResponseCodeToString(protocolID envelope.ProtocolID, code uint32) string {
+	if code == 0 {
+		return protocolID.String() + ":parse"
+	}
+
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	for _, protocol := range ps.Protocols {
+		if bytes.Equal(protocol.ProtocolID(), protocolID) {
+			return protocolID.String() + ":" + protocol.ResponseCodeToString(code)
+		}
+	}
+
+	return protocolID.String() + fmt.Sprintf(":unknown(%d)", code)
 }
 
 func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
@@ -96,7 +159,7 @@ func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
 	return envelopeV1.Wrap(payload).Script()
 }
 
-func Unwrap(script []byte) (*WrappedMessage, error) {
+func (ps *Protocols) Unwrap(script []byte) (*WrappedMessage, error) {
 	payload, err := envelopeV1.Parse(bytes.NewReader(script))
 	if err != nil {
 		return nil, errors.Wrap(err, "envelope")
@@ -118,38 +181,24 @@ func Unwrap(script []byte) (*WrappedMessage, error) {
 		return nil, errors.Wrap(err, "message id")
 	}
 
-	result.Message, err = parse(payload)
+	if len(payload.ProtocolIDs) == 0 {
+		return result, nil
+	}
+
+	if len(payload.ProtocolIDs) > 1 {
+		return nil, errors.Wrap(ErrNotSupported, "more than one data protocol")
+	}
+
+	protocol := ps.GetProtocol(payload.ProtocolIDs[0])
+	if protocol == nil {
+		return nil, errors.Wrap(ErrUnsupportedProtocol, payload.ProtocolIDs[0].String())
+	}
+
+	msg, err := protocol.Parse(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse")
 	}
+	result.Message = msg
 
 	return result, nil
-}
-
-func parse(payload envelope.Data) (Writer, error) {
-	if len(payload.Payload) == 0 && len(payload.ProtocolIDs) == 0 {
-		return nil, nil
-	}
-
-	if len(payload.ProtocolIDs) == 0 {
-		return nil, errors.New("No Message Protocol")
-	}
-
-	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDMerkleProof) {
-		return ParseMerkleProof(payload)
-	}
-
-	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDRelationships) {
-		return ParseRelationship(payload)
-	}
-
-	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDInvoices) {
-		return ParseInvoice(payload)
-	}
-
-	if bytes.Equal(payload.ProtocolIDs[0], ProtocolIDPeerChannels) {
-		return ParsePeerChannels(payload)
-	}
-
-	return nil, errors.Wrap(ErrUnsupportedProtocol, fmt.Sprintf("0x%x", payload.ProtocolIDs[0]))
 }

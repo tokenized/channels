@@ -1,9 +1,10 @@
-package channels
+package relationships
 
 import (
 	"bytes"
 	"fmt"
 
+	"github.com/tokenized/channels"
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
@@ -17,47 +18,47 @@ import (
 // simply verify with them through other communication channels that they were on the other side.
 
 const (
-	RelationshipsVersion = uint8(0)
+	Version = uint8(0)
 
-	RelationshipsMessageTypeInvalid = RelationshipsMessageType(0)
+	MessageTypeInvalid = MessageType(0)
 
-	// RelationshipsMessageTypeInitiation initializes a relationship.
-	RelationshipsMessageTypeInitiation = RelationshipsMessageType(1)
+	// MessageTypeInitiation initializes a relationship.
+	MessageTypeInitiation = MessageType(1)
 
-	// RelationshipsMessageTypeUpdate updates the configuration of the communication channel.
-	RelationshipsMessageTypeUpdate = RelationshipsMessageType(2)
+	// MessageTypeUpdate updates the configuration of the communication channel.
+	MessageTypeUpdate = MessageType(2)
 
-	// RelationshipsMessageTypeSubInitiation creates a new sub-channel that is part of this
+	// MessageTypeSubInitiation creates a new sub-channel that is part of this
 	// relationship. It is the same identities involved, but a separate communication channel that
 	// can be used by agents or for other purposes.
-	RelationshipsMessageTypeSubInitiation = RelationshipsMessageType(3)
+	MessageTypeSubInitiation = MessageType(3)
 
-	// RelationshipsMessageTypeSubUpdate updates the configuration of sub-channel.
-	RelationshipsMessageTypeSubUpdate = RelationshipsMessageType(4)
+	// MessageTypeSubUpdate updates the configuration of sub-channel.
+	MessageTypeSubUpdate = MessageType(4)
 
-	// RelationshipsMessageTypeSubTerminate terminates a sub-channel. Neither party should expect
+	// MessageTypeSubTerminate terminates a sub-channel. Neither party should expect
 	// any further messages on the communication channels involved.
-	RelationshipsMessageTypeSubTerminate = RelationshipsMessageType(5)
+	MessageTypeSubTerminate = MessageType(5)
 
-	RelationshipsStatusNotInitiated     = uint32(1)
-	RelationshipsStatusAlreadyInitiated = uint32(2)
+	StatusNotInitiated     = uint32(1)
+	StatusAlreadyInitiated = uint32(2)
 )
 
 var (
-	ProtocolIDRelationships = envelope.ProtocolID("RS") // Protocol ID for relationship messages
+	ProtocolID = envelope.ProtocolID("RS") // Protocol ID for relationship messages
 
-	// RelationshipsOptionSubChannels specifies that sub channels are enabled. Sub-channels provide
+	// OptionSubChannels specifies that sub channels are enabled. Sub-channels provide
 	// separate channels of communication under one relationship. For example, an agent
 	// administrator can establish a relationship with sub peer channels and a public key then
 	// configure the agent to use the sub channels and public key. The invoices to pay for the
 	// service will be sent to the primary peer channels, so the administrator can pay them, but the
 	// agent can use the sub channels to access the service.
-	RelationshipsOptionSubChannels = bitcoin.Hex{0x01}
+	OptionSubChannels = bitcoin.Hex{0x01}
 
 	ErrUnsupportedRelationshipsMessage = errors.New("Unsupported Relationships Message")
 )
 
-type RelationshipsMessageType uint8
+type MessageType uint8
 
 type ChannelConfiguration struct {
 	// PublicKey is the base public key for a relationship. Channel message signing keys will be
@@ -65,7 +66,7 @@ type ChannelConfiguration struct {
 	PublicKey bitcoin.PublicKey `bsor:"1" json:"public_key"`
 
 	// PeerChannels for relationship to send messages to.
-	PeerChannels PeerChannels `bsor:"2" json:"peer_channels,omitempty"`
+	PeerChannels channels.PeerChannels `bsor:"2" json:"peer_channels,omitempty"`
 
 	// SupportedProtocols specifies the Envelope protocol IDs that can be interpreted by this
 	// channel. If an unsuported protocol ID is used then this channel will respond with an
@@ -90,6 +91,24 @@ type ProtocolOption struct {
 
 type ProtocolOptions []*ProtocolOption
 
+type Protocol struct{}
+
+func NewProtocol() *Protocol {
+	return &Protocol{}
+}
+
+func (*Protocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
+}
+
+func (*Protocol) Parse(payload envelope.Data) (channels.Message, error) {
+	return Parse(payload)
+}
+
+func (*Protocol) ResponseCodeToString(code uint32) string {
+	return ResponseCodeToString(code)
+}
+
 type Identity struct {
 	Name     *string   `bsor:"1" json:"name,omitempty"`
 	Email    *string   `bsor:"2" json:"email,omitempty"`
@@ -107,21 +126,21 @@ type Location struct {
 	PostalCode *string  `bsor:"5" json:"postal_code,omitempty"`
 }
 
-type RelationshipInitiation struct {
+type Initiation struct {
 	Configuration ChannelConfiguration `bsor:"1" json:"data"`
 	Identity      Identity             `bsor:"5" json:"identity"`
 }
 
-func (*RelationshipInitiation) ProtocolID() envelope.ProtocolID {
-	return ProtocolIDRelationships
+func (*Initiation) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
 }
 
-func (r *RelationshipInitiation) Write() (envelope.Data, error) {
+func (r *Initiation) Write() (envelope.Data, error) {
 	// Version
-	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(RelationshipsVersion))}
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(RelationshipsMessageTypeInitiation)))
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(MessageTypeInitiation)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(r)
@@ -130,24 +149,24 @@ func (r *RelationshipInitiation) Write() (envelope.Data, error) {
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.Data{envelope.ProtocolIDs{ProtocolIDRelationships}, payload}, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
 
-type RelationshipUpdate struct {
+type Update struct {
 	Configuration ChannelConfiguration `bsor:"1" json:"data"`
 	Identity      Identity             `bsor:"5" json:"identity"`
 }
 
-func (*RelationshipUpdate) ProtocolID() envelope.ProtocolID {
-	return ProtocolIDRelationships
+func (*Update) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
 }
 
-func (r *RelationshipUpdate) Write() (envelope.Data, error) {
+func (r *Update) Write() (envelope.Data, error) {
 	// Version
-	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(RelationshipsVersion))}
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 
 	// Message type
-	payload = append(payload, bitcoin.PushNumberScriptItem(int64(RelationshipsMessageTypeUpdate)))
+	payload = append(payload, bitcoin.PushNumberScriptItem(int64(MessageTypeUpdate)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(r)
@@ -156,24 +175,24 @@ func (r *RelationshipUpdate) Write() (envelope.Data, error) {
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.Data{envelope.ProtocolIDs{ProtocolIDRelationships}, payload}, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
 
-type RelationshipsSubInitiation struct {
+type SubInitiation struct {
 	Configuration ChannelConfiguration `bsor:"1" json:"data"`
 }
 
-func (*RelationshipsSubInitiation) ProtocolID() envelope.ProtocolID {
-	return ProtocolIDRelationships
+func (*SubInitiation) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
 }
 
-func (r *RelationshipsSubInitiation) Write() (envelope.Data, error) {
+func (r *SubInitiation) Write() (envelope.Data, error) {
 	// Version
-	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(RelationshipsVersion))}
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 
 	// Message type
 	payload = append(payload,
-		bitcoin.PushNumberScriptItem(int64(RelationshipsMessageTypeSubInitiation)))
+		bitcoin.PushNumberScriptItem(int64(MessageTypeSubInitiation)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(r)
@@ -182,24 +201,24 @@ func (r *RelationshipsSubInitiation) Write() (envelope.Data, error) {
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.Data{envelope.ProtocolIDs{ProtocolIDRelationships}, payload}, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
 
-type RelationshipsSubUpdate struct {
+type SubUpdate struct {
 	Configuration ChannelConfiguration `bsor:"1" json:"data"`
 }
 
-func (*RelationshipsSubUpdate) ProtocolID() envelope.ProtocolID {
-	return ProtocolIDRelationships
+func (*SubUpdate) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
 }
 
-func (r *RelationshipsSubUpdate) Write() (envelope.Data, error) {
+func (r *SubUpdate) Write() (envelope.Data, error) {
 	// Version
-	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(RelationshipsVersion))}
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 
 	// Message type
 	payload = append(payload,
-		bitcoin.PushNumberScriptItem(int64(RelationshipsMessageTypeSubUpdate)))
+		bitcoin.PushNumberScriptItem(int64(MessageTypeSubUpdate)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(r)
@@ -208,23 +227,23 @@ func (r *RelationshipsSubUpdate) Write() (envelope.Data, error) {
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.Data{envelope.ProtocolIDs{ProtocolIDRelationships}, payload}, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
 
-type RelationshipsSubTerminate struct {
+type SubTerminate struct {
 }
 
-func (*RelationshipsSubTerminate) ProtocolID() envelope.ProtocolID {
-	return ProtocolIDRelationships
+func (*SubTerminate) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
 }
 
-func (r *RelationshipsSubTerminate) Write() (envelope.Data, error) {
+func (r *SubTerminate) Write() (envelope.Data, error) {
 	// Version
-	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(RelationshipsVersion))}
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 
 	// Message type
 	payload = append(payload,
-		bitcoin.PushNumberScriptItem(int64(RelationshipsMessageTypeSubTerminate)))
+		bitcoin.PushNumberScriptItem(int64(MessageTypeSubTerminate)))
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(r)
@@ -233,24 +252,24 @@ func (r *RelationshipsSubTerminate) Write() (envelope.Data, error) {
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.Data{envelope.ProtocolIDs{ProtocolIDRelationships}, payload}, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
 
-func ParseRelationship(payload envelope.Data) (Writer, error) {
+func Parse(payload envelope.Data) (channels.Message, error) {
 	if len(payload.ProtocolIDs) == 0 {
 		return nil, nil
 	}
 
-	if !bytes.Equal(payload.ProtocolIDs[0], ProtocolIDRelationships) {
+	if !bytes.Equal(payload.ProtocolIDs[0], ProtocolID) {
 		return nil, nil
 	}
 
 	if len(payload.ProtocolIDs) != 1 {
-		return nil, errors.Wrapf(ErrInvalidMessage, "relationship can't wrap")
+		return nil, errors.Wrapf(channels.ErrInvalidMessage, "relationship can't wrap")
 	}
 
 	if len(payload.Payload) == 0 {
-		return nil, errors.Wrapf(ErrInvalidMessage, "payload empty")
+		return nil, errors.Wrapf(channels.ErrInvalidMessage, "payload empty")
 	}
 
 	version, err := bitcoin.ScriptNumberValue(payload.Payload[0])
@@ -258,7 +277,8 @@ func ParseRelationship(payload envelope.Data) (Writer, error) {
 		return nil, errors.Wrap(err, "version")
 	}
 	if version != 0 {
-		return nil, errors.Wrap(ErrUnsupportedVersion, fmt.Sprintf("relationships: %d", version))
+		return nil, errors.Wrap(channels.ErrUnsupportedVersion,
+			fmt.Sprintf("relationships: %d", version))
 	}
 
 	messageType, err := bitcoin.ScriptNumberValue(payload.Payload[1])
@@ -266,10 +286,10 @@ func ParseRelationship(payload envelope.Data) (Writer, error) {
 		return nil, errors.Wrap(err, "message type")
 	}
 
-	result := RelationshipsMessageForType(RelationshipsMessageType(messageType))
+	result := MessageForType(MessageType(messageType))
 	if result == nil {
 		return nil, errors.Wrap(ErrUnsupportedRelationshipsMessage,
-			fmt.Sprintf("%d", RelationshipsMessageType(messageType)))
+			fmt.Sprintf("%d", MessageType(messageType)))
 	}
 
 	if _, err := bsor.Unmarshal(payload.Payload[2:], result); err != nil {
@@ -279,51 +299,51 @@ func ParseRelationship(payload envelope.Data) (Writer, error) {
 	return result, nil
 }
 
-func RelationshipsMessageForType(messageType RelationshipsMessageType) Writer {
+func MessageForType(messageType MessageType) channels.Message {
 	switch messageType {
-	case RelationshipsMessageTypeInitiation:
-		return &RelationshipInitiation{}
-	case RelationshipsMessageTypeUpdate:
-		return &RelationshipUpdate{}
-	case RelationshipsMessageTypeSubInitiation:
-		return &RelationshipsSubInitiation{}
-	case RelationshipsMessageTypeSubUpdate:
-		return &RelationshipsSubUpdate{}
-	case RelationshipsMessageTypeSubTerminate:
-		return &RelationshipsSubTerminate{}
-	case RelationshipsMessageTypeInvalid:
+	case MessageTypeInitiation:
+		return &Initiation{}
+	case MessageTypeUpdate:
+		return &Update{}
+	case MessageTypeSubInitiation:
+		return &SubInitiation{}
+	case MessageTypeSubUpdate:
+		return &SubUpdate{}
+	case MessageTypeSubTerminate:
+		return &SubTerminate{}
+	case MessageTypeInvalid:
 		return nil
 	default:
 		return nil
 	}
 }
 
-func RelationshipsMessageTypeFor(message Message) RelationshipsMessageType {
+func MessageTypeFor(message channels.Message) MessageType {
 	switch message.(type) {
-	case *RelationshipInitiation:
-		return RelationshipsMessageTypeInitiation
-	case *RelationshipUpdate:
-		return RelationshipsMessageTypeUpdate
-	case *RelationshipsSubInitiation:
-		return RelationshipsMessageTypeSubInitiation
-	case *RelationshipsSubUpdate:
-		return RelationshipsMessageTypeSubUpdate
-	case *RelationshipsSubTerminate:
-		return RelationshipsMessageTypeSubTerminate
+	case *Initiation:
+		return MessageTypeInitiation
+	case *Update:
+		return MessageTypeUpdate
+	case *SubInitiation:
+		return MessageTypeSubInitiation
+	case *SubUpdate:
+		return MessageTypeSubUpdate
+	case *SubTerminate:
+		return MessageTypeSubTerminate
 	default:
-		return RelationshipsMessageTypeInvalid
+		return MessageTypeInvalid
 	}
 }
 
-func (v *RelationshipsMessageType) UnmarshalJSON(data []byte) error {
+func (v *MessageType) UnmarshalJSON(data []byte) error {
 	if len(data) < 2 {
-		return fmt.Errorf("Too short for RelationshipsMessageType : %d", len(data))
+		return fmt.Errorf("Too short for MessageType : %d", len(data))
 	}
 
 	return v.SetString(string(data[1 : len(data)-1]))
 }
 
-func (v RelationshipsMessageType) MarshalJSON() ([]byte, error) {
+func (v MessageType) MarshalJSON() ([]byte, error) {
 	s := v.String()
 	if len(s) == 0 {
 		return []byte("null"), nil
@@ -332,61 +352,61 @@ func (v RelationshipsMessageType) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf("\"%s\"", s)), nil
 }
 
-func (v RelationshipsMessageType) MarshalText() ([]byte, error) {
+func (v MessageType) MarshalText() ([]byte, error) {
 	s := v.String()
 	if len(s) == 0 {
-		return nil, fmt.Errorf("Unknown RelationshipsMessageType value \"%d\"", uint8(v))
+		return nil, fmt.Errorf("Unknown MessageType value \"%d\"", uint8(v))
 	}
 
 	return []byte(s), nil
 }
 
-func (v *RelationshipsMessageType) UnmarshalText(text []byte) error {
+func (v *MessageType) UnmarshalText(text []byte) error {
 	return v.SetString(string(text))
 }
 
-func (v *RelationshipsMessageType) SetString(s string) error {
+func (v *MessageType) SetString(s string) error {
 	switch s {
 	case "initiation":
-		*v = RelationshipsMessageTypeInitiation
+		*v = MessageTypeInitiation
 	case "update":
-		*v = RelationshipsMessageTypeUpdate
+		*v = MessageTypeUpdate
 	case "sub-initiation":
-		*v = RelationshipsMessageTypeSubInitiation
+		*v = MessageTypeSubInitiation
 	case "sub-update":
-		*v = RelationshipsMessageTypeSubUpdate
+		*v = MessageTypeSubUpdate
 	case "sub-remove":
-		*v = RelationshipsMessageTypeSubTerminate
+		*v = MessageTypeSubTerminate
 	default:
-		*v = RelationshipsMessageTypeInvalid
-		return fmt.Errorf("Unknown RelationshipsMessageType value \"%s\"", s)
+		*v = MessageTypeInvalid
+		return fmt.Errorf("Unknown MessageType value \"%s\"", s)
 	}
 
 	return nil
 }
 
-func (v RelationshipsMessageType) String() string {
+func (v MessageType) String() string {
 	switch v {
-	case RelationshipsMessageTypeInitiation:
+	case MessageTypeInitiation:
 		return "initiation"
-	case RelationshipsMessageTypeUpdate:
+	case MessageTypeUpdate:
 		return "update"
-	case RelationshipsMessageTypeSubInitiation:
+	case MessageTypeSubInitiation:
 		return "sub-initiation"
-	case RelationshipsMessageTypeSubUpdate:
+	case MessageTypeSubUpdate:
 		return "sub-update"
-	case RelationshipsMessageTypeSubTerminate:
+	case MessageTypeSubTerminate:
 		return "sub-remove"
 	default:
 		return ""
 	}
 }
 
-func RelationshipsStatusToString(code uint32) string {
+func ResponseCodeToString(code uint32) string {
 	switch code {
-	case RelationshipsStatusNotInitiated:
+	case StatusNotInitiated:
 		return "not_initiated"
-	case RelationshipsStatusAlreadyInitiated:
+	case StatusAlreadyInitiated:
 		return "already_initiated"
 	default:
 		return "parse_error"

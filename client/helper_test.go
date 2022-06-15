@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/merkle_proof"
@@ -20,19 +21,19 @@ type MockUser struct {
 }
 
 func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
-	peerChannelsFactory *peer_channels.Factory) (*Client, *Client) {
+	protocols *channels.Protocols, peerChannelsFactory *peer_channels.Factory) (*Client, *Client) {
 
 	userAName := "User A"
-	userAIdentity := &channels.Identity{
+	userAIdentity := &relationships.Identity{
 		Name: &userAName,
 	}
-	clientA := MockClient(ctx, store, peerChannelsFactory)
+	clientA := MockClient(ctx, store, protocols, peerChannelsFactory)
 
 	userBName := "User B"
-	userBIdentity := &channels.Identity{
+	userBIdentity := &relationships.Identity{
 		Name: &userBName,
 	}
-	clientB := MockClient(ctx, store, peerChannelsFactory)
+	clientB := MockClient(ctx, store, protocols, peerChannelsFactory)
 
 	channelA, err := clientA.CreateRelationshipChannel(ctx, wallet.RandomHash())
 	if err != nil {
@@ -44,8 +45,8 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 		panic(fmt.Sprintf("Failed to create channel : %s", err))
 	}
 
-	userBInitiation := &channels.RelationshipInitiation{
-		Configuration: channels.ChannelConfiguration{
+	userBInitiation := &relationships.Initiation{
+		Configuration: relationships.ChannelConfiguration{
 			PublicKey:          channelB.Key().PublicKey(),
 			PeerChannels:       channelB.IncomingPeerChannels(),
 			SupportedProtocols: SupportedProtocols(),
@@ -58,14 +59,14 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 		panic(fmt.Sprintf("Failed to create message : %s", err))
 	}
 
-	if err := channelA.InitializeRelationship(ctx, initBMessage.Payload(),
+	if err := channelA.InitializeRelationship(ctx, protocols, initBMessage.Payload(),
 		userBInitiation.Configuration.PublicKey,
 		userBInitiation.Configuration.PeerChannels); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
 	}
 
-	userAInitiation := &channels.RelationshipInitiation{
-		Configuration: channels.ChannelConfiguration{
+	userAInitiation := &relationships.Initiation{
+		Configuration: relationships.ChannelConfiguration{
 			PublicKey:          channelA.Key().PublicKey(),
 			PeerChannels:       channelA.IncomingPeerChannels(),
 			SupportedProtocols: SupportedProtocols(),
@@ -78,7 +79,7 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 		panic(fmt.Sprintf("Failed to create message : %s", err))
 	}
 
-	if err := channelB.InitializeRelationship(ctx, initAMessage.Payload(),
+	if err := channelB.InitializeRelationship(ctx, protocols, initAMessage.Payload(),
 		userAInitiation.Configuration.PublicKey,
 		userAInitiation.Configuration.PeerChannels); err != nil {
 		panic(fmt.Sprintf("Failed to initialize channel : %s", err))
@@ -87,7 +88,7 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 	return clientA, clientB
 }
 
-func MockClient(ctx context.Context, store storage.StreamReadWriter,
+func MockClient(ctx context.Context, store storage.StreamReadWriter, protocols *channels.Protocols,
 	peerChannelsFactory *peer_channels.Factory) *Client {
 
 	peerClient, err := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
@@ -105,7 +106,7 @@ func MockClient(ctx context.Context, store storage.StreamReadWriter,
 		panic(fmt.Sprintf("Failed to create key : %s", err))
 	}
 
-	client := NewClient(key, store, nil, peerChannelsFactory)
+	client := NewClient(key, store, protocols, nil, peerChannelsFactory)
 	client.SetPeerChannelsURL(peer_channels.MockClientURL)
 	client.SetPeerChannelsAccount(*accountID, *accountToken)
 	return client

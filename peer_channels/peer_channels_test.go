@@ -1,4 +1,4 @@
-package channels
+package peer_channels
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/tokenized/channels"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 
@@ -16,8 +17,8 @@ import (
 func Test_PeerChannels_Create(t *testing.T) {
 	key, _ := bitcoin.GenerateKey(bitcoin.MainNet)
 
-	msg := &PeerChannelsCreateChannel{
-		Type: PeerChannelTypePublic,
+	msg := &CreateChannel{
+		Type: ChannelTypePublic,
 	}
 
 	payload, err := msg.Write()
@@ -25,7 +26,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 		t.Fatalf("Failed to write peer channels : %s", err)
 	}
 
-	signature, err := Sign(payload, key, nil, true)
+	signature, err := channels.Sign(payload, key, nil, true)
 	if err != nil {
 		t.Fatalf("Failed to sign payload : %s", err)
 	}
@@ -49,7 +50,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 		t.Fatalf("Failed to parse script : %s", err)
 	}
 
-	signed, signedPayload, err := ParseSigned(readPayload)
+	signed, signedPayload, err := channels.ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to read signed message : %s", err)
 	}
@@ -60,7 +61,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParsePeerChannels(signedPayload)
+	readMsg, err := Parse(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}
@@ -68,7 +69,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("PeerChannel message : %s", js)
 
-	if _, ok := readMsg.(*PeerChannelsCreateChannel); !ok {
+	if _, ok := readMsg.(*CreateChannel); !ok {
 		t.Errorf("Wrong message type")
 	}
 
@@ -80,7 +81,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 func Test_PeerChannels_Delete(t *testing.T) {
 	key, _ := bitcoin.GenerateKey(bitcoin.MainNet)
 
-	msg := &PeerChannelsDeleteChannel{
+	msg := &DeleteChannel{
 		ID: uuid.New(),
 	}
 
@@ -89,7 +90,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		t.Fatalf("Failed to write peer channels : %s", err)
 	}
 
-	signature, err := Sign(payload, key, nil, true)
+	signature, err := channels.Sign(payload, key, nil, true)
 	if err != nil {
 		t.Fatalf("Failed to sign payload : %s", err)
 	}
@@ -112,7 +113,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		t.Fatalf("Failed to parse script : %s", err)
 	}
 
-	signed, signedPayload, err := ParseSigned(readPayload)
+	signed, signedPayload, err := channels.ParseSigned(readPayload)
 	if err != nil {
 		t.Fatalf("Failed to read signed message : %s", err)
 	}
@@ -123,7 +124,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := ParsePeerChannels(signedPayload)
+	readMsg, err := Parse(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}
@@ -131,7 +132,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 	js, _ := json.MarshalIndent(readMsg, "", "  ")
 	t.Logf("PeerChannel message : %s", js)
 
-	if _, ok := readMsg.(*PeerChannelsDeleteChannel); !ok {
+	if _, ok := readMsg.(*DeleteChannel); !ok {
 		t.Errorf("Wrong message type")
 	}
 
