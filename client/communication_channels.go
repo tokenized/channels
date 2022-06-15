@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -295,8 +296,8 @@ func sendMessage(ctx context.Context, peerChannelsFactory *peer_channels.Factory
 			return errors.Wrap(err, "peer client")
 		}
 
-		if _, err := peerClient.PostBinaryMessage(ctx, peerChannel.ID, peerChannel.WriteToken,
-			message); err != nil {
+		if err := peerClient.WriteMessage(ctx, peerChannel.ID, peerChannel.WriteToken,
+			peer_channels.ContentTypeBinary, bytes.NewReader(message)); err != nil {
 			logger.WarnWithFields(ctx, []logger.Field{
 				logger.String("base_url", peerChannel.BaseURL),
 				logger.String("channel", peerChannel.ID),

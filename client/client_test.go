@@ -98,6 +98,8 @@ func Test_Initiate(t *testing.T) {
 		wait.Done()
 	}()
 
+	time.Sleep(time.Millisecond * 250)
+
 	/********************************** Send Initiation Message ***********************************/
 	/**********************************************************************************************/
 	initiation := &relationships.Initiation{
@@ -127,70 +129,67 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Wrong message count : got %d, want %d", len(user1Messages), 1)
 	}
 
-	initiationFound := false
-	for _, channelMessage := range user1Messages {
-		wMessage, err := protocols.Unwrap(channelMessage.Message.Payload())
-		if err != nil {
-			t.Fatalf("Failed to umwrap message : %s", err)
-		}
-
-		if wMessage.Signature == nil {
-			t.Errorf("Message not signed")
-		}
-
-		if wMessage.Response != nil {
-			t.Errorf("Should not be a response")
-		}
-
-		if wMessage.Message == nil {
-			continue
-		}
-
-		js, err := json.MarshalIndent(wMessage.Message, "", "  ")
-		t.Logf("User 1 message : %s", js)
-
-		initiation, ok := wMessage.Message.(*relationships.Initiation)
-		if !ok {
-			continue
-		}
-		initiationFound = true
-
-		if !initiation.Configuration.PublicKey.Equal(user2Channel.Key().PublicKey()) {
-			t.Errorf("Wrong public key in initiation : got %s, want %s",
-				initiation.Configuration.PublicKey, user2Channel.Key().PublicKey())
-		}
-
-		if initiation.Configuration.PeerChannels[0].ID !=
-			user2Channel.IncomingPeerChannels()[0].ID {
-			t.Errorf("Wrong peer channel in initiation : got %s, want %s",
-				initiation.Configuration.PeerChannels[0].ID,
-				user2Channel.IncomingPeerChannels()[0].ID)
-		}
-
-		if err := user1Channel.InitializeRelationship(ctx, protocols,
-			channelMessage.Message.Payload(), initiation.Configuration.PublicKey,
-			initiation.Configuration.PeerChannels); err != nil {
-			t.Fatalf("Failed to initialize channel : %s", err)
-		}
-
-		// Respond to relationship initiation
-		responseInitiation := &relationships.Initiation{
-			Configuration: relationships.ChannelConfiguration{
-				PublicKey:          user1Channel.Key().PublicKey(),
-				PeerChannels:       user1Channel.IncomingPeerChannels(),
-				SupportedProtocols: SupportedProtocols(),
-			},
-			Identity: *user1Identity,
-		}
-
-		responseID := channelMessage.Message.ID()
-		if _, err := user1Channel.SendMessage(ctx, responseInitiation, &responseID); err != nil {
-			t.Fatalf("Failed to send initiation : %s", err)
-		}
+	user1Message, err := user1PublicChannel.GetIncomingMessage(ctx, 0)
+	if err != nil {
+		t.Fatalf("Failed to get message : %s", err)
 	}
 
-	if !initiationFound {
-		t.Errorf("Initiation not found")
+	wMessage, err := protocols.Unwrap(user1Message.Payload())
+	if err != nil {
+		t.Fatalf("Failed to umwrap message : %s", err)
+	}
+
+	if wMessage.Signature == nil {
+		t.Errorf("Message not signed")
+	}
+
+	if wMessage.Response != nil {
+		t.Errorf("Should not be a response")
+	}
+
+	if wMessage.Message == nil {
+		t.Fatalf("Message payload empty")
+	}
+
+	js, err := json.MarshalIndent(wMessage.Message, "", "  ")
+	t.Logf("User 1 message : %s", js)
+
+	initiation, ok := wMessage.Message.(*relationships.Initiation)
+	if !ok {
+		t.Fatalf("Use 1 message not initiation")
+	}
+
+	if !initiation.Configuration.PublicKey.Equal(user2Channel.Key().PublicKey()) {
+		t.Errorf("Wrong public key in initiation : got %s, want %s",
+			initiation.Configuration.PublicKey, user2Channel.Key().PublicKey())
+	}
+
+	if initiation.Configuration.PeerChannels[0].ID !=
+		user2Channel.IncomingPeerChannels()[0].ID {
+		t.Errorf("Wrong peer channel in initiation : got %s, want %s",
+			initiation.Configuration.PeerChannels[0].ID,
+			user2Channel.IncomingPeerChannels()[0].ID)
+	}
+
+	if err := user1Channel.InitializeRelationship(ctx, protocols,
+		user1Message.Payload(), initiation.Configuration.PublicKey,
+		initiation.Configuration.PeerChannels); err != nil {
+		t.Fatalf("Failed to initialize channel : %s", err)
+	}
+
+	// Respond to relationship initiation
+	responseInitiation := &relationships.Initiation{
+		Configuration: relationships.ChannelConfiguration{
+			PublicKey:          user1Channel.Key().PublicKey(),
+			PeerChannels:       user1Channel.IncomingPeerChannels(),
+			SupportedProtocols: SupportedProtocols(),
+		},
+		Identity: *user1Identity,
+	}
+
+	responseID := user1Message.ID()
+	if _, err := user1Channel.SendMessage(ctx, responseInitiation, &responseID); err != nil {
+		t.Fatalf("Failed to send initiation : %s", err)
 	}
 
 	/***************************** Receive Initiation Response Message ****************************/
@@ -212,7 +211,7 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Failed to get message : %s", err)
 	}
 
-	wMessage, err := protocols.Unwrap(user2Message.Payload())
+	wMessage, err = protocols.Unwrap(user2Message.Payload())
 	if err != nil {
 		t.Fatalf("Failed to umwrap message : %s", err)
 	}
@@ -229,7 +228,7 @@ func Test_Initiate(t *testing.T) {
 		t.Fatalf("Missing relationship initiation payload")
 	}
 
-	js, err := json.MarshalIndent(wMessage.Message, "", "  ")
+	js, err = json.MarshalIndent(wMessage.Message, "", "  ")
 	t.Logf("User 2 message : %s", js)
 
 	msg, ok := wMessage.Message.(*relationships.Initiation)

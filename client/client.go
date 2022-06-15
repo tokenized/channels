@@ -130,9 +130,8 @@ func (c *Client) createPeerChannelsClient(ctx context.Context) (peer_channels.Cl
 }
 
 func (c *Client) createPeerChannelsAccountClient(ctx context.Context) (peer_channels.AccountClient, error) {
-	client, err := c.createPeerChannelsClient(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "create client")
+	if c.peerChannelsBaseURL == nil {
+		return nil, errors.New("Missing Peer Channels Base URL")
 	}
 
 	if c.peerChannelsAccountID == nil {
@@ -143,8 +142,8 @@ func (c *Client) createPeerChannelsAccountClient(ctx context.Context) (peer_chan
 		return nil, errors.New("Missing Peer Channels Account Token")
 	}
 
-	return peer_channels.NewAccountClient(client, *c.peerChannelsAccountID,
-		*c.peerChannelsAccountToken), nil
+	return c.peerChannelsFactory.NewAccountClient(*c.peerChannelsBaseURL, *c.peerChannelsAccountID,
+		*c.peerChannelsAccountToken)
 }
 
 func (c *Client) BaseKey() bitcoin.Key {
@@ -263,7 +262,7 @@ func (c *Client) CreateRelationshipChannel(ctx context.Context,
 		{
 			BaseURL:    accountClient.BaseURL(),
 			ID:         peerChannel.ID,
-			WriteToken: peerChannel.GetWriteToken(),
+			WriteToken: peerChannel.WriteToken,
 		},
 	}
 
@@ -386,16 +385,17 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 
 	var accountThread *threads.Thread
 	if c.peerChannelsAccountID != nil {
+		logger.InfoWithFields(ctx, []logger.Field{
+			logger.String("url", *c.peerChannelsBaseURL),
+			logger.String("account", *c.peerChannelsAccountID),
+		}, "Listening for messages on account")
+
 		accountClient, err := c.createPeerChannelsAccountClient(ctx)
 		if err != nil {
 			c.lock.Unlock()
 			return errors.Wrap(err, "create account client")
 		}
 
-		logger.InfoWithFields(ctx, []logger.Field{
-			logger.String("url", accountClient.BaseURL()),
-			logger.String("account", *c.peerChannelsAccountID),
-		}, "Listening for messages on account")
 		accountThread = threads.NewThread("Listen for Account Messages", func(ctx context.Context,
 			interrupt <-chan interface{}) error {
 			return accountClient.Listen(ctx, true, incomingMessages, interrupt)
@@ -414,20 +414,20 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 				continue
 			}
 
+			logger.InfoWithFields(ctx, []logger.Field{
+				logger.String("url", peerChannel.BaseURL),
+				logger.String("channel", peerChannel.ID),
+			}, "Listening for messages on channel")
+
 			client, err := c.peerChannelsFactory.NewClient(peerChannel.BaseURL)
 			if err != nil {
 				c.lock.Unlock()
 				return errors.Wrap(err, "create peer channel client")
 			}
 
-			logger.InfoWithFields(ctx, []logger.Field{
-				logger.String("url", peerChannel.BaseURL),
-				logger.String("channel", peerChannel.ID),
-			}, "Listening for messages on channel")
 			channelThread := threads.NewThread("Listen for Channel Messages", func(ctx context.Context,
 				interrupt <-chan interface{}) error {
-				return client.ChannelListen(ctx, peerChannel.ID, peerChannel.ReadToken, true,
-					incomingMessages, interrupt)
+				return client.Listen(ctx, peerChannel.ReadToken, true, incomingMessages, interrupt)
 			})
 			channelThread.SetWait(&wait)
 			channelThread.SetOnComplete(errorFunc)
@@ -470,7 +470,6 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 
 	stopper.Stop(ctx)
 	wait.Wait()
-	close(incomingMessages)
 	handleWait.Wait()
 	return listenErr
 }
@@ -486,36 +485,26 @@ func (c *Client) handleMessages(ctx context.Context, incoming <-chan peer_channe
 }
 
 func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Message) error {
-	logger.VerboseWithFields(ctx, []logger.Field{
-		logger.String("channel", message.ChannelID),
-		logger.String("content_type", message.ContentType),
-		logger.Uint32("sequence", message.Sequence),
-		logger.Stringer("received", message.Received),
-		logger.Stringer("message_hash", message.Hash()),
-	}, "Received message")
+	ctx = logger.ContextWithLogFields(ctx, logger.String("channel", message.ChannelID),
+		logger.Uint64("sequence", message.Sequence))
 
 	if message.ContentType != peer_channels.ContentTypeBinary {
 		logger.WarnWithFields(ctx, []logger.Field{
-			logger.String("channel", message.ChannelID),
 			logger.String("content_type", message.ContentType),
-			logger.Uint32("sequence", message.Sequence),
-			logger.Stringer("received", message.Received),
-			logger.Stringer("message_hash", message.Hash()),
 		}, "Message content not binary")
 		return nil
 	}
+
+	logger.VerboseWithFields(ctx, []logger.Field{
+		logger.Stringer("message_hash", message.Hash()),
+	}, "Received message")
 
 	channel, err := c.GetChannel(message.ChannelID)
 	if err != nil {
 		return errors.Wrap(err, "get channel")
 	}
 	if channel == nil {
-		logger.WarnWithFields(ctx, []logger.Field{
-			logger.String("channel", message.ChannelID),
-			logger.Uint32("sequence", message.Sequence),
-			logger.Stringer("received", message.Received),
-			logger.Stringer("message_hash", message.Hash()),
-		}, "Unknown channel")
+		logger.Warn(ctx, "Unknown channel")
 		return nil
 	}
 
@@ -523,12 +512,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 		logger.Stringer("channel_hash", channel.Hash()))
 
 	if err := c.processMessage(ctx, channel, message); err != nil {
-		logger.WarnWithFields(ctx, []logger.Field{
-			logger.String("channel", message.ChannelID),
-			logger.Uint32("sequence", message.Sequence),
-			logger.Stringer("received", message.Received),
-			logger.Stringer("message_hash", message.Hash()),
-		}, "Process message : %s", err)
+		logger.Warn(ctx, "Process message : %s", err)
 		return nil
 	}
 
@@ -548,11 +532,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 			return errors.Wrap(err, "mark message read channel")
 		}
 
-		logger.InfoWithFields(ctx, []logger.Field{
-			logger.String("channel", message.ChannelID),
-			logger.Uint32("sequence", message.Sequence),
-			logger.Stringer("received", message.Received),
-		}, "Marked message as read with channel")
+		logger.Info(ctx, "Marked message as read with channel")
 	} else {
 		c.lock.Lock()
 
@@ -576,11 +556,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 
 		c.lock.Unlock()
 
-		logger.InfoWithFields(ctx, []logger.Field{
-			logger.String("channel", message.ChannelID),
-			logger.Uint32("sequence", message.Sequence),
-			logger.Stringer("received", message.Received),
-		}, "Marked message as read with account")
+		logger.Info(ctx, "Marked message as read with account")
 	}
 
 	return nil

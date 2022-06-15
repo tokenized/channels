@@ -91,12 +91,9 @@ func MockRelatedUsers(ctx context.Context, store storage.StreamReadWriter,
 func MockClient(ctx context.Context, store storage.StreamReadWriter, protocols *channels.Protocols,
 	peerChannelsFactory *peer_channels.Factory) *Client {
 
-	peerClient, err := peerChannelsFactory.NewClient(peer_channels.MockClientURL)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to create peer client : %s", err))
-	}
+	peerClient := peerChannelsFactory.MockClient()
 
-	accountID, accountToken, err := peerClient.CreateAccount(ctx, "")
+	accountID, accountToken, err := peerClient.CreateAccount(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create account : %s", err))
 	}

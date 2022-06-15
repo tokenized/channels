@@ -40,12 +40,10 @@ func main() {
 	}
 
 	go func() {
-		if err := client.AccountListen(ctx, accountID, token, true, incoming,
-			listenInterrupt); err != nil {
+		if err := client.Listen(ctx, token, true, incoming, listenInterrupt); err != nil {
 			logger.Error(ctx, "Failed to listen : %s", err)
 		}
 
-		close(incoming)
 		close(listenComplete)
 	}()
 
