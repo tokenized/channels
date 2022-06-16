@@ -165,7 +165,6 @@ func (w *Wallet) GenerateKeys(contextID bitcoin.Hash32, count int) (Keys, error)
 }
 
 func (w *Wallet) RetainKeys(contextID bitcoin.Hash32, keys Keys) error {
-	print("retaining keys ", contextID.String(), "\n")
 	w.keysLock.Lock()
 	defer w.keysLock.Unlock()
 
@@ -239,8 +238,6 @@ func RandomHash() bitcoin.Hash32 {
 func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 	baseKey bitcoin.Key) error {
 
-	print("loading keys\n")
-
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
 		return errors.Wrap(err, "list")
@@ -253,7 +250,6 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 		}
 
 		for contextID, keys := range keySet {
-			print("loading keyset ", contextID.String(), "\n")
 			(*ks)[contextID] = keys
 		}
 	}
@@ -279,7 +275,6 @@ func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 }
 
 func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHeight uint32) error {
-	print("saving keys\n")
 	paths, err := store.List(ctx, keysPath)
 	if err != nil {
 		return errors.Wrap(err, "list")
@@ -298,7 +293,6 @@ func (ks *KeySet) save(ctx context.Context, store storage.StreamStorage, blockHe
 		archiveKeys := make(KeySet)
 		unarchivedKeys := make(KeySet)
 		for contextID, keys := range keyset {
-			print("saving keyset ", contextID.String(), "\n")
 			for _, key := range keys {
 				if key.modified {
 					modified = true
