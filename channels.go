@@ -120,6 +120,8 @@ func (ps *Protocols) ResponseCodeToString(protocolID envelope.ProtocolID, code u
 	return protocolID.String() + fmt.Sprintf(":unknown(%d)", code)
 }
 
+// Wrap wraps a message with a response id (if specified), adds the message id, signs it, and
+// serializes it.
 func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
 	responseID *uint64) (bitcoin.Script, error) {
 
@@ -128,32 +130,50 @@ func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
 		return nil, errors.Wrap(err, "write")
 	}
 
-	mID := &MessageID{
-		MessageID: messageID,
-	}
-	payload, err = mID.Wrap(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "message id")
-	}
-
-	if responseID != nil {
-		response := &Response{
-			MessageID: *responseID,
-		}
-		payload, err = response.Wrap(payload)
+	// Don't put two responses in the message.
+	if _, ok := msg.(*Response); !ok && responseID != nil {
+		payload, err = WrapResponseID(payload, *responseID)
 		if err != nil {
 			return nil, errors.Wrap(err, "response")
 		}
 	}
 
-	signature, err := Sign(payload, key, &hash, false)
+	payload, err = WrapMessageID(payload, messageID)
+	if err != nil {
+		return nil, errors.Wrap(err, "message id")
+	}
+
+	payload, err = WrapSignature(payload, key, &hash, false)
 	if err != nil {
 		return nil, errors.Wrap(err, "sign")
 	}
 
-	payload, err = signature.Wrap(payload)
+	return envelopeV1.Wrap(payload).Script()
+}
+
+// WrapWithResponse wraps a message with the specified response, adds the message id, signs it, and
+// serializes it.
+func WrapWithResponse(msg Writer, response *Response, key bitcoin.Key, hash bitcoin.Hash32,
+	messageID uint64) (bitcoin.Script, error) {
+
+	payload, err := msg.Write()
 	if err != nil {
-		return nil, errors.Wrap(err, "sign wrap")
+		return nil, errors.Wrap(err, "write")
+	}
+
+	payload, err = response.Wrap(payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "response")
+	}
+
+	payload, err = WrapMessageID(payload, messageID)
+	if err != nil {
+		return nil, errors.Wrap(err, "message id")
+	}
+
+	payload, err = WrapSignature(payload, key, &hash, false)
+	if err != nil {
+		return nil, errors.Wrap(err, "sign")
 	}
 
 	return envelopeV1.Wrap(payload).Script()
@@ -171,14 +191,14 @@ func (ps *Protocols) Unwrap(script []byte) (*WrappedMessage, error) {
 		return nil, errors.Wrap(err, "sign")
 	}
 
-	result.Response, payload, err = ParseResponse(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "response")
-	}
-
 	result.MessageID, payload, err = ParseMessageID(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "message id")
+	}
+
+	result.Response, payload, err = ParseResponse(payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "response")
 	}
 
 	if len(payload.ProtocolIDs) == 0 {

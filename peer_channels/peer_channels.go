@@ -155,7 +155,7 @@ func (m *CreateChannel) Write() (envelope.Data, error) {
 }
 
 type DeleteChannel struct {
-	ID uuid.UUID `bsor:"1" json:"id"`
+	ID string `bsor:"1" json:"id"`
 }
 
 func (*DeleteChannel) ProtocolID() envelope.ProtocolID {

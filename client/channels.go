@@ -252,6 +252,34 @@ func (c *Channel) SendMessage(ctx context.Context, msg channels.Writer,
 	return message.ID(), nil
 }
 
+func (c *Channel) SendResponse(ctx context.Context, msg channels.Writer,
+	response *channels.Response) (uint64, error) {
+
+	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", c.Hash()))
+
+	message, err := c.NewMessage(ctx)
+	if err != nil {
+		return 0, errors.Wrap(err, "new message")
+	}
+
+	script, err := channels.WrapWithResponse(msg, response, c.Key(), wallet.RandomHash(),
+		message.ID())
+	if err != nil {
+		return 0, errors.Wrap(err, "wrap")
+	}
+	message.SetPayload(script)
+
+	if err := c.outgoing.sendMessage(ctx, c.peerChannelsFactory, message); err != nil {
+		return 0, errors.Wrap(err, "send")
+	}
+
+	if err := c.MarkMessageIsProcessed(ctx, response.MessageID); err != nil {
+		return 0, errors.Wrap(err, "mark processed")
+	}
+
+	return message.ID(), nil
+}
+
 func (c *Channel) NewMessage(ctx context.Context) (*Message, error) {
 	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("channel_hash", c.Hash()))
 	return c.outgoing.newMessage(ctx)

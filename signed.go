@@ -119,6 +119,19 @@ func Sign(payload envelope.Data, key bitcoin.Key, derivationHash *bitcoin.Hash32
 	return message, nil
 }
 
+// WrapSignature signs the payload and wraps the payload with the signature and returns the new
+// payload containing the signature.
+func WrapSignature(payload envelope.Data, key bitcoin.Key, derivationHash *bitcoin.Hash32,
+	includeKey bool) (envelope.Data, error) {
+
+	signature, err := Sign(payload, key, derivationHash, includeKey)
+	if err != nil {
+		return payload, errors.Wrap(err, "sign")
+	}
+
+	return signature.Wrap(payload)
+}
+
 // ParseSigned parses the signature and public key (if provided).
 func ParseSigned(payload envelope.Data) (*Signature, envelope.Data, error) {
 	if len(payload.ProtocolIDs) == 0 ||

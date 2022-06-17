@@ -30,6 +30,16 @@ func (*MessageID) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDMessageID
 }
 
+// WrapMessageID wraps the payload with the message id and returns the new payload containing the
+// message id.
+func WrapMessageID(payload envelope.Data, messageID uint64) (envelope.Data, error) {
+	id := &MessageID{
+		MessageID: messageID,
+	}
+
+	return id.Wrap(payload)
+}
+
 func (m *MessageID) Wrap(payload envelope.Data) (envelope.Data, error) {
 	// Version
 	scriptItems := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(MessageIDVersion))}

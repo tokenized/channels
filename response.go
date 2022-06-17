@@ -25,25 +25,28 @@ const (
 	// explain the reason.
 	StatusInvalid = Status(2)
 
+	// StatusUnauthorized means the request is not permitted.
+	StatusUnauthorized = Status(3)
+
 	// StatusUnsupportedProtocol means the message received used a protocol not supported by
 	// this software.
-	StatusUnsupportedProtocol = Status(3)
+	StatusUnsupportedProtocol = Status(4)
 
 	// StatusUnwanted means the request message received was valid, but the recipient doesn't
 	// want to accept it.
-	StatusUnwanted = Status(4)
+	StatusUnwanted = Status(5)
 
 	// StatusNeedPayment means that a payment request was previously exchanged and not yet
 	// fulfilled. Until that is fulfilled or renegotiated further requests will be rejected.
-	StatusNeedPayment = Status(5)
+	StatusNeedPayment = Status(6)
 
 	// StatusChannelInUse means the peer channel the request was received on is already in use
 	// for another purpose.
-	StatusChannelInUse = Status(6)
+	StatusChannelInUse = Status(7)
 
 	// StatusSystemIssue means there was a systems issue and it was important to respond, but
 	// a successful response was not possible.
-	StatusSystemIssue = Status(7)
+	StatusSystemIssue = Status(8)
 
 	ResponseStatusMessageNotFound = uint32(1)
 	ResponseStatusWrongMessage    = uint32(2)
@@ -75,6 +78,16 @@ func (*Response) IsWrapperType() {}
 
 func (*Response) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDResponse
+}
+
+// WrapResponseID wraps the payload with the response containing just the specified id and returns
+// the new payload containing the response.
+func WrapResponseID(payload envelope.Data, responseID uint64) (envelope.Data, error) {
+	response := &Response{
+		MessageID: responseID,
+	}
+
+	return response.Wrap(payload)
 }
 
 func (r *Response) Write() (envelope.Data, error) {
@@ -187,6 +200,8 @@ func (v *Status) SetString(s string) error {
 		*v = StatusReject
 	case "invalid":
 		*v = StatusInvalid
+	case "unauthorized":
+		*v = StatusUnauthorized
 	case "unsupported_protocol":
 		*v = StatusUnsupportedProtocol
 	case "unwanted":
@@ -213,6 +228,8 @@ func (v Status) String() string {
 		return "reject"
 	case StatusInvalid:
 		return "invalid"
+	case StatusUnauthorized:
+		return "unauthorized"
 	case StatusUnsupportedProtocol:
 		return "unsupported_protocol"
 	case StatusUnwanted:

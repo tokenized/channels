@@ -82,7 +82,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 	key, _ := bitcoin.GenerateKey(bitcoin.MainNet)
 
 	msg := &DeleteChannel{
-		ID: uuid.New(),
+		ID: uuid.New().String(),
 	}
 
 	payload, err := msg.Write()
