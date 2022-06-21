@@ -3,5 +3,5 @@
 *.test
 *.prof
 *.log
-tmp
+tmp*
 *.env

@@ -228,35 +228,55 @@ func (c *CommunicationChannel) getMessage(ctx context.Context, id uint64) (*Mess
 	return c.sequencedMessages[offset], nil
 }
 
+func (c *CommunicationChannel) AddUnsequencedMessage(ctx context.Context, payload bitcoin.Script,
+	wrap *channels.WrappedMessage) (*Message, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	nextID := uint64(c.loadedOffset + len(c.sequencedMessages))
+	msg := &Message{
+		id:        nextID,
+		payload:   payload,
+		timestamp: channels.Now(),
+	}
+	c.sequencedMessages = append(c.sequencedMessages, msg)
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Uint64("message_id", msg.ID()),
+		logger.Int("bytes", len(payload)),
+	}, "New message")
+
+	return msg, nil
+}
+
 func (c *CommunicationChannel) AddMessage(ctx context.Context, payload bitcoin.Script,
 	wrap *channels.WrappedMessage) (*Message, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if wrap.MessageID != nil {
-		nextID := uint64(c.loadedOffset + len(c.sequencedMessages))
-		if wrap.MessageID.MessageID != nextID {
-			return nil, errors.Wrapf(ErrWrongMessageID, "got %d, want %d", wrap.MessageID.MessageID,
-				nextID)
-		}
-
-		msg := &Message{
-			id:        nextID,
-			payload:   payload,
-			timestamp: channels.Now(),
-		}
-		c.sequencedMessages = append(c.sequencedMessages, msg)
-
-		logger.InfoWithFields(ctx, []logger.Field{
-			logger.Uint64("message_id", msg.ID()),
-			logger.Int("bytes", len(payload)),
-		}, "New sequenced message")
-
-		return msg, nil
+	if wrap.MessageID == nil {
+		return nil, errors.New("Unsequenced Messages Not Supported")
 	}
 
-	return nil, errors.New("Unsequenced Messages Not Supported")
+	nextID := uint64(c.loadedOffset + len(c.sequencedMessages))
+	if wrap.MessageID.MessageID != nextID {
+		return nil, errors.Wrapf(ErrWrongMessageID, "got %d, want %d", wrap.MessageID.MessageID,
+			nextID)
+	}
 
+	msg := &Message{
+		id:        nextID,
+		payload:   payload,
+		timestamp: channels.Now(),
+	}
+	c.sequencedMessages = append(c.sequencedMessages, msg)
+
+	logger.InfoWithFields(ctx, []logger.Field{
+		logger.Uint64("message_id", msg.ID()),
+		logger.Int("bytes", len(payload)),
+	}, "New sequenced message")
+
+	return msg, nil
 }
 
 func (c *CommunicationChannel) newMessage(ctx context.Context) (*Message, error) {

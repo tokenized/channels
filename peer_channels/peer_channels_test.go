@@ -14,6 +14,46 @@ import (
 	"github.com/google/uuid"
 )
 
+func Test_PeerChannels_CalculatePeerChannelsServiceChannelID(t *testing.T) {
+
+	tests := []struct {
+		publicKey string
+		channelID string
+	}{
+		{
+			publicKey: "02b11cc88dbb41d61aa4eadbea40ce45085ed67725a202bcf457c764a0ede21a38",
+			channelID: "878b8fca-10c6-eddf-87fd-dd8afecc4e2c",
+		},
+		{
+			publicKey: "038cb9383fd651956b78d1b8015017f25391f4f65e92ba2fe37ee5d83ffa9da59e",
+			channelID: "99325aef-7898-47cf-1407-0bdb45cfda7f",
+		},
+		{
+			publicKey: "0295ab61b205cf5b3e81b8c8fd31fff807029d1826b650dcb2579cbb14a6eaf84a",
+			channelID: "0e9e83f2-ade1-90ff-65a3-e4e0dbb62636",
+		},
+	}
+
+	for _, test := range tests {
+		publicKey, err := bitcoin.PublicKeyFromStr(test.publicKey)
+		if err != nil {
+			t.Fatalf("Failed to parse public key : %s", err)
+		}
+
+		channelID, err := uuid.Parse(test.channelID)
+		if err != nil {
+			t.Fatalf("Failed to parse channel id : %s", err)
+		}
+
+		calcChannelID := CalculatePeerChannelsServiceChannelID(publicKey)
+		t.Logf("Channel ID : %s", calcChannelID)
+
+		if calcChannelID != channelID.String() {
+			t.Errorf("Wrong calculated id : got %s, want %s", calcChannelID, channelID)
+		}
+	}
+}
+
 func Test_PeerChannels_Create(t *testing.T) {
 	key, _ := bitcoin.GenerateKey(bitcoin.MainNet)
 

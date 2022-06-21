@@ -330,9 +330,17 @@ func (c *Channel) ProcessMessage(ctx context.Context, protocols *channels.Protoc
 		return nil, errors.Wrap(err, "unwrap")
 	}
 
-	msg, err := c.incoming.AddMessage(ctx, bitcoin.Script(message.Payload), wrap)
-	if err != nil {
-		return nil, errors.Wrap(err, "add message")
+	var msg *Message
+	if c.Type() == ChannelTypeRelationshipInitiation {
+		msg, err = c.incoming.AddUnsequencedMessage(ctx, bitcoin.Script(message.Payload), wrap)
+		if err != nil {
+			return nil, errors.Wrap(err, "add message")
+		}
+	} else {
+		msg, err = c.incoming.AddMessage(ctx, bitcoin.Script(message.Payload), wrap)
+		if err != nil {
+			return nil, errors.Wrap(err, "add message")
+		}
 	}
 
 	if wrap.Signature == nil {
@@ -343,6 +351,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, protocols *channels.Protoc
 		}); err != nil {
 			return nil, errors.Wrap(err, "no signature: reject")
 		}
+
 		return nil, nil
 	}
 

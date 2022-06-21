@@ -301,7 +301,8 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 
 	logger.InfoWithFields(ctx, []logger.Field{
 		logger.String("channel", channelID),
-	}, "Calculating incoming peer channel for initial service channel")
+		logger.Stringer("public_key", key.PublicKey()),
+	}, "Calculated incoming peer channel for initial service channel")
 
 	channel := NewChannel(ChannelTypeRelationship, hash, key, peerChannels, c.store,
 		c.peerChannelsFactory)
