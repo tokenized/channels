@@ -42,7 +42,7 @@ var (
 
 // Wallet defines the wallet functions that the Channels client needs direct access to.
 type Wallet interface {
-	AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) ([]bitcoin.Hash32, error)
+	AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) error
 	AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.MsgTx) error
 }
 

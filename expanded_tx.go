@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -65,4 +66,28 @@ func (etx ExpandedTx) CalculateFee() (uint64, error) {
 	}
 
 	return inputValue - outputValue, nil
+}
+
+func (etx ExpandedTx) InputLockingScript(index int) (bitcoin.Script, error) {
+	if index >= len(etx.Tx.TxIn) {
+		return nil, errors.New("Index out of range")
+	}
+
+	txin := etx.Tx.TxIn[index]
+
+	parentTx := etx.Ancestors.GetTx(txin.PreviousOutPoint.Hash)
+	if parentTx == nil {
+		return nil, errors.Wrap(MissingInput, "parent:"+txin.PreviousOutPoint.Hash.String())
+	}
+
+	tx := parentTx.GetTx()
+	if tx == nil {
+		return nil, errors.Wrap(MissingInput, "parent tx:"+txin.PreviousOutPoint.Hash.String())
+	}
+
+	if txin.PreviousOutPoint.Index >= uint32(len(tx.TxOut)) {
+		return nil, errors.Wrap(MissingInput, txin.PreviousOutPoint.String())
+	}
+
+	return tx.TxOut[txin.PreviousOutPoint.Index].LockingScript, nil
 }

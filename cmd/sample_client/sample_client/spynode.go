@@ -32,34 +32,31 @@ func (c *Client) applyTxState(ctx context.Context, txid bitcoin.Hash32,
 	txState *spyNodeClient.TxState) {
 	ctx = logger.ContextWithLogFields(ctx, logger.Stringer("txid", txid))
 
+	state := wallet.TxStatePending
+
 	if txState.Safe {
-		if err := c.Wallet.MarkTxSafe(ctx, txid); err != nil {
-			if errors.Cause(err) != wallet.ErrUnknownTx {
-				logger.Error(ctx, "Failed to mark wallet tx as safe : %s", err)
-			}
-		}
+		state |= wallet.TxStateSafe
 	}
 
 	if txState.UnSafe {
-		if err := c.Wallet.MarkTxUnsafe(ctx, txid); err != nil {
-			if errors.Cause(err) != wallet.ErrUnknownTx {
-				logger.Error(ctx, "Failed to mark wallet tx as unsafe : %s", err)
-			}
-		}
+		state |= wallet.TxStateUnsafe
 	}
 
 	if txState.Cancelled {
-		if err := c.Wallet.MarkTxCancelled(ctx, txid); err != nil {
-			if errors.Cause(err) != wallet.ErrUnknownTx {
-				logger.Error(ctx, "Failed to mark wallet tx as cancelled : %s", err)
-			}
+		state |= wallet.TxStateCancelled
+	}
+
+	if err := c.Wallet.UpdateTx(ctx, txid, state); err != nil {
+		if errors.Cause(err) != wallet.ErrUnknownTx {
+			logger.ErrorWithFields(ctx, []logger.Field{
+				logger.Stringer("state", state),
+			}, "Failed to update wallet tx : %s", err)
 		}
 	}
 
 	if txState.MerkleProof != nil {
 		merkleProof := txState.MerkleProof.ConvertToMerkleProof(txid)
-		channelHashes, err := c.Wallet.AddMerkleProof(ctx, merkleProof)
-		if err != nil {
+		if err := c.Wallet.AddMerkleProof(ctx, merkleProof); err != nil {
 			if errors.Cause(err) != wallet.ErrUnknownTx {
 				logger.Error(ctx, "Failed to add merkle proof to wallet : %s", err)
 			} else {
@@ -68,20 +65,24 @@ func (c *Client) applyTxState(ctx context.Context, txid bitcoin.Hash32,
 		} else {
 			logger.InfoWithFields(ctx, []logger.Field{
 				logger.Stringer("block_hash", merkleProof.GetBlockHash()),
-				logger.Int("channel_count", len(channelHashes)),
 			}, "Added merkleproof to tx")
 
-			// Send merkle proof to related channels
-			for _, channelHash := range channelHashes {
-				channel, err := c.ChannelsClient.GetChannelByHash(channelHash)
-				if err != nil {
-					logger.Error(ctx, "Failed to get channel : %s", err)
-				} else if channel != nil {
-					if _, err := channel.SendMessage(ctx, &merkle_proofs.MerkleProof{merkleProof},
-						nil); err != nil {
-						logger.ErrorWithFields(ctx, []logger.Field{
-							logger.Stringer("channel", channelHash),
-						}, "Failed to send message to channel : %s", err)
+			channelHashes, err := c.Wallet.GetTxContextIDs(ctx, txid)
+			if err != nil {
+				logger.Error(ctx, "Failed to get tx channel hashes : %s", err)
+			} else {
+				// Send merkle proof to related channels
+				for _, channelHash := range channelHashes {
+					channel, err := c.ChannelsClient.GetChannelByHash(channelHash)
+					if err != nil {
+						logger.Error(ctx, "Failed to get channel : %s", err)
+					} else if channel != nil {
+						if _, err := channel.SendMessage(ctx, &merkle_proofs.MerkleProof{merkleProof},
+							nil); err != nil {
+							logger.ErrorWithFields(ctx, []logger.Field{
+								logger.Stringer("channel", channelHash),
+							}, "Failed to send message to channel : %s", err)
+						}
 					}
 				}
 			}

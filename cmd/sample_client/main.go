@@ -41,7 +41,7 @@ type Config struct {
 func main() {
 	args := os.Args
 	if len(args) < 2 {
-		fmt.Printf("Command required: channels_sample <listen, list, receive, ...>\n")
+		fmt.Printf("Command required: channels_sample <listen, list, display, receive, mark, establish, order, transfer>\n")
 		os.Exit(1)
 	}
 
@@ -273,6 +273,7 @@ func establish(ctx context.Context, client *sample_client.Client, args ...string
 	}
 
 	fmt.Printf("Created channel : %s\n", channel.Hash())
+	fmt.Printf("  Public Key : %s\n", channel.Key().PublicKey().String())
 
 	serviceChannels := channels.PeerChannels{
 		{
@@ -448,8 +449,10 @@ func listen(ctx context.Context, client *sample_client.Client,
 	spynodeErrors := make(chan error, 1)
 	spyNodeClient.SetListenerErrorChannel(&spynodeErrors)
 
-	spynodeThread := threads.NewThreadWithoutStop("Spynode", spyNodeClient.Connect)
-	spynodeThread.SetWait(&wait)
+	if err := spyNodeClient.Connect(ctx); err != nil {
+		logger.Error(ctx, "Failed to connect to spynode : %s", err)
+		return
+	}
 
 	clientThread := threads.NewThread("Client", client.Run)
 	clientThread.SetWait(&wait)
@@ -459,7 +462,6 @@ func listen(ctx context.Context, client *sample_client.Client,
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, syscall.SIGTERM)
 
-	spynodeThread.Start(ctx)
 	clientThread.Start(ctx)
 
 	select {
@@ -479,9 +481,5 @@ func listen(ctx context.Context, client *sample_client.Client,
 
 	if err := clientThread.Error(); err != nil {
 		fmt.Printf("Client thread failed : %s\n", err)
-	}
-
-	if err := spynodeThread.Error(); err != nil {
-		fmt.Printf("SpyNode thread failed : %s\n", err)
 	}
 }

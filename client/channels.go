@@ -497,7 +497,7 @@ func (c *Channel) merkleProof(ctx context.Context, wallet Wallet, msg *Message,
 		return nil
 	}
 
-	if _, err := wallet.AddMerkleProof(ctx, merkleProof.MerkleProof); err != nil {
+	if err := wallet.AddMerkleProof(ctx, merkleProof.MerkleProof); err != nil {
 		return errors.Wrap(err, "add merkle proof")
 	}
 

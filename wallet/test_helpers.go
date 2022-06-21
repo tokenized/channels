@@ -103,7 +103,7 @@ func MockReceiveTxWithProof(ctx context.Context, wallet *Wallet, contextID bitco
 		panic(fmt.Sprintf("Failed to add input tx : %s", err))
 	}
 
-	if _, err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
+	if err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
 		panic(fmt.Sprintf("Failed to add input merkle proof : %s", err))
 	}
 
@@ -185,7 +185,7 @@ func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin
 				panic(fmt.Sprintf("Failed to add input tx : %s", err))
 			}
 
-			if _, err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
+			if err := wallet.AddMerkleProof(ctx, proofs[0]); err != nil {
 				panic(fmt.Sprintf("Failed to add input merkle proof : %s", err))
 			}
 

@@ -346,6 +346,24 @@ func (w *Wallet) AddTxWithoutContext(ctx context.Context, tx *wire.MsgTx) error 
 	return w.AddTx(ctx, *contextID, tx)
 }
 
+func (w *Wallet) GetTxContextIDs(ctx context.Context,
+	txid bitcoin.Hash32) ([]bitcoin.Hash32, error) {
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
+
+	// Check if tx was already added.
+	walletTx, err := fetchTx(ctx, w.store, txid)
+	if err != nil {
+		return nil, errors.Wrap(err, "fetch")
+	}
+
+	if walletTx == nil {
+		return nil, nil
+	}
+
+	return walletTx.ContextIDs, nil
+}
+
 func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.MsgTx) error {
 	txid := *tx.TxHash()
 
@@ -461,16 +479,14 @@ func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.M
 
 // AddMerkleProof verifies the merkle proof and adds it to the tx if it doesn't have it already.
 // It returns the context ids associated with the corresponding tx.
-func (w *Wallet) AddMerkleProof(ctx context.Context,
-	merkleProof *merkle_proof.MerkleProof) ([]bitcoin.Hash32, error) {
-
+func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.MerkleProof) error {
 	txid := merkleProof.GetTxID()
 	if txid == nil {
-		return nil, errors.New("No txid in merkle proof")
+		return errors.New("No txid in merkle proof")
 	}
 
 	if _, _, err := w.merkleProofVerifier.VerifyMerkleProof(ctx, merkleProof); err != nil {
-		return nil, errors.Wrap(err, "verify")
+		return errors.Wrap(err, "verify")
 	}
 
 	w.txLock.Lock()
@@ -479,60 +495,27 @@ func (w *Wallet) AddMerkleProof(ctx context.Context,
 	// Check if tx was already added.
 	walletTx, err := fetchTx(ctx, w.store, *txid)
 	if err != nil {
-		return nil, errors.Wrap(err, "fetch tx")
+		return errors.Wrap(err, "fetch tx")
 	}
 	if walletTx == nil {
-		return nil, errors.Wrap(ErrUnknownTx, txid.String())
+		return errors.Wrap(ErrUnknownTx, txid.String())
 	}
 
 	if err := walletTx.AddMerkleProof(ctx, merkleProof); err != nil {
 		if errors.Cause(err) == AlreadyHaveMerkleProof {
-			return nil, nil
+			return nil
 		}
-		return nil, errors.Wrap(err, "add merkle proof")
+		return errors.Wrap(err, "add merkle proof")
 	}
-
-	if err := walletTx.save(ctx, w.store); err != nil {
-		return nil, errors.Wrap(err, "save tx")
-	}
-
-	return walletTx.ContextIDs, nil
-}
-
-func (w *Wallet) MarkTxSafe(ctx context.Context, txid bitcoin.Hash32) error {
-	w.txLock.Lock()
-	defer w.txLock.Unlock()
-
-	// Check if tx was already added.
-	walletTx, err := fetchTx(ctx, w.store, txid)
-	if err != nil {
-		return errors.Wrap(err, "fetch tx")
-	}
-	if walletTx == nil {
-		return errors.Wrap(ErrUnknownTx, txid.String())
-	}
-
-	if walletTx.State == TxStateSafe {
-		return nil
-	}
-	walletTx.State = TxStateSafe
 
 	if err := walletTx.save(ctx, w.store); err != nil {
 		return errors.Wrap(err, "save tx")
-	}
-
-	logger.InfoWithFields(ctx, []logger.Field{
-		logger.Stringer("txid", txid),
-	}, "Marked tx as safe")
-
-	if err := w.markOutputs(ctx, txid, TxStateSafe); err != nil {
-		return errors.Wrap(err, "utxos")
 	}
 
 	return nil
 }
 
-func (w *Wallet) MarkTxUnsafe(ctx context.Context, txid bitcoin.Hash32) error {
+func (w *Wallet) UpdateTx(ctx context.Context, txid bitcoin.Hash32, state TxState) error {
 	w.txLock.Lock()
 	defer w.txLock.Unlock()
 
@@ -545,53 +528,21 @@ func (w *Wallet) MarkTxUnsafe(ctx context.Context, txid bitcoin.Hash32) error {
 		return errors.Wrap(ErrUnknownTx, txid.String())
 	}
 
-	if walletTx.State == TxStateUnsafe {
+	if walletTx.State == state {
 		return nil
 	}
-	walletTx.State = TxStateUnsafe
 
+	walletTx.State = state
 	if err := walletTx.save(ctx, w.store); err != nil {
 		return errors.Wrap(err, "save tx")
 	}
 
 	logger.InfoWithFields(ctx, []logger.Field{
 		logger.Stringer("txid", txid),
-	}, "Marked tx as unsafe")
+		logger.Stringer("state", state),
+	}, "Updated tx")
 
-	if err := w.markOutputs(ctx, txid, TxStateUnsafe); err != nil {
-		return errors.Wrap(err, "utxos")
-	}
-
-	return nil
-}
-
-func (w *Wallet) MarkTxCancelled(ctx context.Context, txid bitcoin.Hash32) error {
-	w.txLock.Lock()
-	defer w.txLock.Unlock()
-
-	// Check if tx was already added.
-	walletTx, err := fetchTx(ctx, w.store, txid)
-	if err != nil {
-		return errors.Wrap(err, "fetch tx")
-	}
-	if walletTx == nil {
-		return errors.Wrap(ErrUnknownTx, txid.String())
-	}
-
-	if walletTx.State == TxStateCancelled {
-		return nil
-	}
-	walletTx.State = TxStateCancelled
-
-	if err := walletTx.save(ctx, w.store); err != nil {
-		return errors.Wrap(err, "save tx")
-	}
-
-	logger.InfoWithFields(ctx, []logger.Field{
-		logger.Stringer("txid", txid),
-	}, "Marked tx as cancelled")
-
-	if err := w.markOutputs(ctx, txid, TxStateCancelled); err != nil {
+	if err := w.markOutputs(ctx, txid, state); err != nil {
 		return errors.Wrap(err, "utxos")
 	}
 
