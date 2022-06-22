@@ -364,6 +364,19 @@ func (w *Wallet) GetTxContextIDs(ctx context.Context,
 	return walletTx.ContextIDs, nil
 }
 
+func (w *Wallet) GetTx(ctx context.Context, txid bitcoin.Hash32) (*Tx, error) {
+	w.txLock.Lock()
+	defer w.txLock.Unlock()
+
+	// Check if tx was already added.
+	tx, err := fetchTx(ctx, w.store, txid)
+	if err != nil {
+		return nil, errors.Wrap(err, "fetch tx")
+	}
+
+	return tx, nil
+}
+
 func (w *Wallet) AddTx(ctx context.Context, contextID bitcoin.Hash32, tx *wire.MsgTx) error {
 	txid := *tx.TxHash()
 
@@ -485,7 +498,8 @@ func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.M
 		return errors.New("No txid in merkle proof")
 	}
 
-	if _, _, err := w.merkleProofVerifier.VerifyMerkleProof(ctx, merkleProof); err != nil {
+	_, isMostPOW, err := w.merkleProofVerifier.VerifyMerkleProof(ctx, merkleProof)
+	if err != nil {
 		return errors.Wrap(err, "verify")
 	}
 
@@ -506,6 +520,10 @@ func (w *Wallet) AddMerkleProof(ctx context.Context, merkleProof *merkle_proof.M
 			return nil
 		}
 		return errors.Wrap(err, "add merkle proof")
+	}
+
+	if isMostPOW && walletTx.State&TxStateSafe == 0 {
+		walletTx.State = TxStateSafe
 	}
 
 	if err := walletTx.save(ctx, w.store); err != nil {

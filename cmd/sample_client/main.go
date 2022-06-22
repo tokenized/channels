@@ -41,7 +41,8 @@ type Config struct {
 func main() {
 	args := os.Args
 	if len(args) < 2 {
-		fmt.Printf("Command required: channels_sample <listen, list, display, receive, mark, establish, order, transfer, get_tx>\n")
+		fmt.Printf(`Command required: channels_sample <listen, list, display, receive, mark,
+ establish, order, transfer, get_tx, display_tx>\n`)
 		os.Exit(1)
 	}
 
@@ -113,11 +114,39 @@ func main() {
 		transfer(ctx, protocols, client, spyNodeClient, args[2:]...)
 	case "get_tx":
 		get_tx(ctx, client, spyNodeClient, args[2:]...)
+	case "display_tx":
+		display_tx(ctx, client, args[2:]...)
 	}
 
 	if err := client.Save(ctx); err != nil {
 		logger.Error(ctx, "Failed to save client : %s", err)
 	}
+}
+
+func display_tx(ctx context.Context, client *sample_client.Client, args ...string) {
+	if len(args) != 1 {
+		fmt.Printf("Missing arguments : channels_sample display_tx <txid>\n")
+		return
+	}
+
+	txid, err := bitcoin.NewHash32FromStr(args[0])
+	if err != nil {
+		fmt.Printf("Invalid txid : %s\n", err)
+		return
+	}
+
+	tx, err := client.Wallet.GetTx(ctx, *txid)
+	if err != nil {
+		fmt.Printf("Failed to get tx : %s\n", err)
+		return
+	}
+
+	if tx == nil {
+		fmt.Printf("Tx not found\n")
+	}
+
+	js, _ := json.MarshalIndent(tx, "", "  ")
+	fmt.Printf("%s\n", js)
 }
 
 func get_tx(ctx context.Context, client *sample_client.Client,
