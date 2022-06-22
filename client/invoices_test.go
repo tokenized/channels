@@ -14,6 +14,7 @@ import (
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/merchant_api"
+	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
 	"github.com/tokenized/pkg/txbuilder"
@@ -187,7 +188,9 @@ func Test_Invoice(t *testing.T) {
 			Tx: txb.MsgTx,
 			Ancestors: channels.AncestorTxs{
 				{
-					MerkleProof: fakeMerkleProof,
+					MerkleProofs: []*merkle_proof.MerkleProof{
+						fakeMerkleProof,
+					},
 				},
 			},
 		},

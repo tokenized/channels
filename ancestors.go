@@ -29,8 +29,8 @@ var (
 // confirmed then the merkle proof should be provided with the tx embedded in it, otherwise the
 // tx with miner responses should be provided and the ancestors included in the same expanded tx.
 type AncestorTx struct {
-	MerkleProof    *merkle_proof.MerkleProof    `bsor:"1" json:"merkle_proof,omitempty"`
-	Tx             *wire.MsgTx                  `bsor:"2" json:"tx,omitempty"`              // marshals as raw bytes
+	Tx             *wire.MsgTx                  `bsor:"1" json:"tx,omitempty"` // marshals as raw bytes
+	MerkleProofs   []*merkle_proof.MerkleProof  `bsor:"2" json:"merkle_proofs,omitempty"`
 	MinerResponses []json_envelope.JSONEnvelope `bsor:"3" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
 }
 
@@ -41,31 +41,55 @@ func (tx AncestorTx) GetTxID() *bitcoin.Hash32 {
 		return tx.Tx.TxHash()
 	}
 
-	if tx.MerkleProof != nil {
-		return tx.MerkleProof.GetTxID()
-	}
-
 	return nil
 }
 
 func (tx AncestorTx) GetTx() *wire.MsgTx {
-	if tx.Tx != nil {
-		return tx.Tx
+	return tx.Tx
+}
+
+func (tx *AncestorTx) AddMerkleProof(merkleProof *merkle_proof.MerkleProof) bool {
+	txid := merkleProof.GetTxID()
+	if txid == nil {
+		return false
 	}
 
-	if tx.MerkleProof.Tx != nil {
-		return tx.MerkleProof.Tx
+	blockHash := merkleProof.GetBlockHash()
+	if blockHash == nil {
+		return false
 	}
 
-	return nil
+	for _, mp := range tx.MerkleProofs {
+		bh := mp.GetBlockHash()
+		if bh == nil {
+			continue
+		}
+
+		if bh.Equal(blockHash) {
+			return false // already have this proof
+		}
+	}
+
+	mp := *merkleProof
+	if mp.Tx != nil {
+		// Clear out tx so we don't have it duplicated
+		mp.TxID = txid
+		mp.Tx = nil
+	}
+
+	tx.MerkleProofs = append(tx.MerkleProofs, &mp)
+	return true
 }
 
 func (tx AncestorTx) String() string {
 	result := &bytes.Buffer{}
-	if tx.MerkleProof != nil {
-		result.Write([]byte(fmt.Sprintf("Merkle Proof : %s\n", tx.MerkleProof.String())))
-	} else if tx.Tx != nil {
+
+	if tx.Tx != nil {
 		result.Write([]byte(tx.Tx.String()))
+	}
+
+	for _, mp := range tx.MerkleProofs {
+		result.Write([]byte(fmt.Sprintf("Merkle Proof : %s\n", mp.String())))
 	}
 
 	result.Write([]byte(fmt.Sprintf("  %d Miner Responses\n", len(tx.MinerResponses))))
@@ -79,13 +103,13 @@ func (tx AncestorTx) String() string {
 
 func (tx AncestorTx) StringWithAddresses(net bitcoin.Network) string {
 	result := &bytes.Buffer{}
-	if tx.MerkleProof != nil {
-		result.Write([]byte(fmt.Sprintf("Merkle Proof : %s\n", tx.MerkleProof.String())))
+
+	if tx.Tx != nil {
+		result.Write([]byte(tx.Tx.StringWithAddresses(net)))
 	}
 
-	wtx := tx.GetTx()
-	if wtx != nil {
-		result.Write([]byte(wtx.StringWithAddresses(net) + "\n"))
+	for _, mp := range tx.MerkleProofs {
+		result.Write([]byte(fmt.Sprintf("Merkle Proof : %s\n", mp.String())))
 	}
 
 	result.Write([]byte(fmt.Sprintf("  %d Miner Responses\n", len(tx.MinerResponses))))

@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
@@ -112,7 +113,9 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 		return depth, channels.MissingMerkleProofAncestors
 	}
 
-	ancestor := &channels.AncestorTx{}
+	ancestor := &channels.AncestorTx{
+		Tx: tx.Tx,
+	}
 	etx.Ancestors = append(etx.Ancestors, ancestor)
 
 	proof, err := tx.GetMerkleProof(ctx, w.merkleProofVerifier)
@@ -120,11 +123,8 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 		return 0, errors.Wrap(err, "tx merkle proof")
 	}
 	if proof != nil {
-		proof.Tx = tx.Tx // embed tx in merkle proof
-		ancestor.MerkleProof = proof
+		ancestor.AddMerkleProof(proof)
 		return depth + 1, nil
-	} else {
-		ancestor.Tx = tx.Tx // embed tx directly
 	}
 
 	// Check inputs of that tx
@@ -200,8 +200,8 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 		if ftx != nil { // already have this tx
 			modified := false
 
-			if atx.MerkleProof != nil {
-				if err := ftx.AddMerkleProof(ctx, atx.MerkleProof); err != nil {
+			for _, mp := range atx.MerkleProofs {
+				if err := ftx.AddMerkleProof(ctx, mp); err != nil {
 					if errors.Cause(err) != AlreadyHaveMerkleProof {
 						return 0, errors.Wrapf(err, "add merkle proof %s", txid)
 					}
@@ -227,8 +227,12 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 		fields := []logger.Field{
 			logger.Stringer("ancestor_txid", txid),
 		}
-		if atx.MerkleProof != nil {
-			fields = append(fields, logger.Stringer("block_hash", atx.MerkleProof.GetBlockHash()))
+		if len(atx.MerkleProofs) > 0 {
+			blockHashes := make([]fmt.Stringer, len(atx.MerkleProofs))
+			for i, mp := range atx.MerkleProofs {
+				blockHashes[i] = mp.GetBlockHash()
+			}
+			fields = append(fields, logger.Stringers("block_hashes", blockHashes))
 		}
 		logger.InfoWithFields(ctx, fields, "Saving expanded tx ancestor")
 
@@ -237,8 +241,8 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 			Tx:         tx,
 		}
 
-		if atx.MerkleProof != nil {
-			if err := ftx.AddMerkleProof(ctx, atx.MerkleProof); err != nil {
+		for _, mp := range atx.MerkleProofs {
+			if err := ftx.AddMerkleProof(ctx, mp); err != nil {
 				if errors.Cause(err) != AlreadyHaveMerkleProof {
 					return 0, errors.Wrap(err, "add merkle proof")
 				}
@@ -273,18 +277,23 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 		return depth, errors.Wrap(channels.MissingMerkleProofAncestors, txid.String())
 	}
 
-	if atx.MerkleProof != nil {
-		_, isLongest, err := w.merkleProofVerifier.VerifyMerkleProof(ctx, atx.MerkleProof)
-		if err != nil {
-			return 0, errors.Wrapf(err, "merkle proof: %s", txid)
+	if len(atx.MerkleProofs) > 0 {
+		containsLongest := false
+		for _, mp := range atx.MerkleProofs {
+			_, isLongest, err := w.merkleProofVerifier.VerifyMerkleProof(ctx, mp)
+			if err != nil {
+				continue
+			}
+
+			if isLongest {
+				(*verified)[txid] = true
+				return depth + 1, nil
+			}
 		}
 
-		if isLongest {
-			(*verified)[txid] = true
-			return depth + 1, nil
+		if !containsLongest {
+			return 0, errors.Wrap(ErrNotMostPOW, txid.String())
 		}
-
-		return 0, errors.Wrap(ErrNotMostPOW, txid.String())
 	}
 
 	tx := atx.GetTx()
