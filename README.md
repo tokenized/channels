@@ -18,6 +18,20 @@ Peer channels (previously SPV channels) can be very scalable and can be directly
 
 An important feature is listening to an entire account on one websocket so if anyone posts to any of your channels you can see it instantly.
 
+### Persistent Communication
+
+Peer channels provide persistent communication which is important for relationships that Channels are built around. Channels is designed to facilitate long term relationships. The partys identify themselves once, and build trust around that with continued interaction.
+
+One example needing persistent communication, that I believe the original peer channels was built around, is tx confirmations. It is tedious to have to maintain a connection until a tx confirms. It is preferable to provide a method to post that data back to the sender when it happens.
+
+Another example is user generated responses. When a user is needed to respond to a message then you can't guarantee when they are online. So the ability to post a request and provide a method to respond when the user deals with it is necessary. I believe many payments will involve several rounds of negotiation, most of which require direct user interaction on both sides.
+
+Paymail can't get the user's approval or signature instantly. You could just send messages to a paymail and receive responses via a paymail handle and a new message posting endpoint, but that reduces privacy and I don't believe can be as distributed and dynamic as peer channels. Peer channels are cheap and efficient and each user can potentially use thousands, similar to using different bitcoin addresses to protect privacy.
+
+One advantage over paymail is the direct user interaction. When receiving a request for a payment destination the user has the option to not provide any addresses if they don't want to interact with that party, or to provide addresses specific to the request that paymail might not know about.
+
+Most users can't be expected to have a domain or IP so they can't provide that function themselves and need a standardized service. I believe there are many other use cases similar and even longer term than this.
+
 ## Encoding
 
 Channels messages are wrapped in the [Envelope v1](https://github.com/tokenized/envelope) protocol to identify the data protocols used. This allows combining protocols like message signing, encryption, and different message type protocols. For example, any data protocol message can be wrapped with the message signing protocol to sign it. This doesn't require the data protocol or implementation to know anything about the signing protocol or vice versa.

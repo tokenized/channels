@@ -77,6 +77,26 @@ func (tx AncestorTx) String() string {
 	return string(result.Bytes())
 }
 
+func (tx AncestorTx) StringWithAddresses(net bitcoin.Network) string {
+	result := &bytes.Buffer{}
+	if tx.MerkleProof != nil {
+		result.Write([]byte(fmt.Sprintf("Merkle Proof : %s\n", tx.MerkleProof.String())))
+	}
+
+	wtx := tx.GetTx()
+	if wtx != nil {
+		result.Write([]byte(wtx.StringWithAddresses(net) + "\n"))
+	}
+
+	result.Write([]byte(fmt.Sprintf("  %d Miner Responses\n", len(tx.MinerResponses))))
+	for _, minerResponse := range tx.MinerResponses {
+		js, _ := json.MarshalIndent(minerResponse, "    ", "  ")
+		result.Write(append(js, []byte("\n")...))
+	}
+
+	return string(result.Bytes())
+}
+
 func (txs AncestorTxs) GetTx(txid bitcoin.Hash32) *AncestorTx {
 	for _, tx := range txs {
 		ancestorTxID := tx.GetTxID()
@@ -109,6 +129,16 @@ func (txs AncestorTxs) String() string {
 	result.Write([]byte(fmt.Sprintf("  %d Ancestors\n", len(txs))))
 	for _, ancestor := range txs {
 		result.Write([]byte(fmt.Sprintf("    %s\n", ancestor.String())))
+	}
+
+	return string(result.Bytes())
+}
+
+func (txs AncestorTxs) StringWithAddresses(net bitcoin.Network) string {
+	result := &bytes.Buffer{}
+	result.Write([]byte(fmt.Sprintf("  %d Ancestors\n", len(txs))))
+	for _, ancestor := range txs {
+		result.Write([]byte(fmt.Sprintf("    %s\n", ancestor.StringWithAddresses(net))))
 	}
 
 	return string(result.Bytes())

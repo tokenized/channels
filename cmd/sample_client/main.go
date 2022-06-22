@@ -41,7 +41,7 @@ type Config struct {
 func main() {
 	args := os.Args
 	if len(args) < 2 {
-		fmt.Printf("Command required: channels_sample <listen, list, display, receive, mark, establish, order, transfer>\n")
+		fmt.Printf("Command required: channels_sample <listen, list, display, receive, mark, establish, order, transfer, get_tx>\n")
 		os.Exit(1)
 	}
 
@@ -111,10 +111,44 @@ func main() {
 		order(ctx, client, args[2:]...)
 	case "transfer":
 		transfer(ctx, protocols, client, spyNodeClient, args[2:]...)
+	case "get_tx":
+		get_tx(ctx, client, spyNodeClient, args[2:]...)
 	}
 
 	if err := client.Save(ctx); err != nil {
 		logger.Error(ctx, "Failed to save client : %s", err)
+	}
+}
+
+func get_tx(ctx context.Context, client *sample_client.Client,
+	spClient *spyNodeClient.RemoteClient, args ...string) {
+
+	if len(args) != 1 {
+		fmt.Printf("Missing arguments : channels_sample get_tx <txid>\n")
+		return
+	}
+
+	txid, err := bitcoin.NewHash32FromStr(args[0])
+	if err != nil {
+		fmt.Printf("Invalid txid : %s\n", err)
+		return
+	}
+
+	if err := spClient.Connect(ctx); err != nil {
+		fmt.Printf("Failed to connect to spynode : %s\n", err)
+		return
+	}
+	defer spClient.Close(ctx)
+
+	tx, err := spClient.GetTx(ctx, *txid)
+	if err != nil {
+		fmt.Printf("Failed to get tx : %s\n", err)
+		return
+	}
+
+	if err := client.Wallet.AddTxWithoutContext(ctx, tx); err != nil {
+		fmt.Printf("Failed to add tx : %s\n", err)
+		return
 	}
 }
 
@@ -205,13 +239,13 @@ func order(ctx context.Context, client *sample_client.Client, args ...string) {
 		return
 	}
 
-	oneK := uint64(1000)
+	price := uint64(1000)
 	purchaseOrder := &invoices.PurchaseOrder{
 		Items: invoices.InvoiceItems{
 			{
 				ID: bitcoin.Hex("standard"),
 				Price: invoices.Price{
-					Quantity: &oneK,
+					Quantity: &price,
 				},
 			},
 		},
@@ -351,11 +385,11 @@ func receive(ctx context.Context, client *sample_client.Client,
 	}
 }
 
-func display(ctx context.Context, protocols *channels.Protocols, client *sample_client.Client,
+func display(ctx context.Context, protocols *channels.Protocols, sampleClient *sample_client.Client,
 	args ...string) {
 
-	if len(args) != 2 {
-		fmt.Printf("Missing arguments : channels_sample display <channel_hash> <message_id>\n")
+	if len(args) != 3 {
+		fmt.Printf("Missing arguments : channels_sample display <channel_hash> <in or out> <message_id>\n")
 		return
 	}
 
@@ -365,22 +399,33 @@ func display(ctx context.Context, protocols *channels.Protocols, client *sample_
 		return
 	}
 
-	messageID, err := strconv.ParseUint(args[1], 10, 64)
+	inOrOut := args[1]
+
+	messageID, err := strconv.ParseUint(args[2], 10, 64)
 	if err != nil {
 		fmt.Printf("Invalid message ID : %s\n", err)
 		return
 	}
 
-	channel, err := client.ChannelsClient.GetChannelByHash(*channelHash)
+	channel, err := sampleClient.ChannelsClient.GetChannelByHash(*channelHash)
 	if err != nil {
 		fmt.Printf("Failed to get channel : %s\n", err)
 		return
 	}
 
-	msg, err := channel.GetOutgoingMessage(ctx, messageID)
-	if err != nil {
-		fmt.Printf("Failed to get message : %s\n", err)
-		return
+	var msg *client.Message
+	if inOrOut == "in" {
+		msg, err = channel.GetIncomingMessage(ctx, messageID)
+		if err != nil {
+			fmt.Printf("Failed to get message : %s\n", err)
+			return
+		}
+	} else {
+		msg, err = channel.GetOutgoingMessage(ctx, messageID)
+		if err != nil {
+			fmt.Printf("Failed to get message : %s\n", err)
+			return
+		}
 	}
 
 	wrap, err := protocols.Unwrap(msg.Payload())
@@ -398,12 +443,14 @@ func display(ctx context.Context, protocols *channels.Protocols, client *sample_
 	fmt.Printf("%s\n", js)
 
 	if transfer, ok := wrap.Message.(*invoices.Transfer); ok {
-		if err := client.Wallet.VerifyFee(ctx, channel.Hash(), transfer.Tx,
+		if err := sampleClient.Wallet.VerifyFee(ctx, channel.Hash(), transfer.Tx,
 			channels.DefaultFeeRequirements); err != nil {
 			fmt.Printf("Failed to verify fee : %s\n", err)
 		} else {
-			fmt.Printf("Verified fee\n")
+			fmt.Printf("\nVerified fee\n")
 		}
+
+		fmt.Printf(transfer.Tx.StringWithAddresses(bitcoin.MainNet))
 	}
 }
 

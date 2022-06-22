@@ -33,6 +33,17 @@ func (etx ExpandedTx) String() string {
 	return string(result.Bytes())
 }
 
+func (etx ExpandedTx) StringWithAddresses(net bitcoin.Network) string {
+	result := &bytes.Buffer{}
+	if etx.Tx != nil {
+		result.Write([]byte(fmt.Sprintf("%s\n", etx.Tx.StringWithAddresses(net))))
+	}
+
+	result.Write([]byte(etx.Ancestors.StringWithAddresses(net)))
+
+	return string(result.Bytes())
+}
+
 // CalculateFee calculates the mining fee paid by the tx.
 // Note: If transactions contianing outputs spent by the inputs are not included in ancestors then
 // `MissingInput` will be returned.
