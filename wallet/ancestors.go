@@ -225,7 +225,7 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 
 		// Create new tx
 		fields := []logger.Field{
-			logger.Stringer("txid", txid),
+			logger.Stringer("ancestor_txid", txid),
 		}
 		if atx.MerkleProof != nil {
 			fields = append(fields, logger.Stringer("block_hash", atx.MerkleProof.GetBlockHash()))

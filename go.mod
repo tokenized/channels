@@ -8,6 +8,6 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/tokenized/config v0.2.1
 	github.com/tokenized/envelope v1.0.1-0.20220520031403-63dd1983ccd8
-	github.com/tokenized/pkg v0.4.1-0.20220621021310-0cb20b6c6c0c
+	github.com/tokenized/pkg v0.4.1-0.20220622022615-dd329ea2ca83
 	github.com/tokenized/spynode v0.2.2-0.20220524190158-032359d0501d
 )

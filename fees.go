@@ -9,7 +9,7 @@ import (
 var (
 	DefaultFeeRequirement = FeeRequirement{
 		FeeType:  merchant_api.FeeTypeStandard,
-		Satoshis: 100,
+		Satoshis: 50,
 		Bytes:    1000,
 	}
 
@@ -18,7 +18,7 @@ var (
 	DefaultFeeQuote = merchant_api.FeeQuote{
 		FeeType: merchant_api.FeeTypeStandard,
 		MiningFee: merchant_api.Fee{
-			Satoshis: 100,
+			Satoshis: 50,
 			Bytes:    1000,
 		},
 		RelayFee: merchant_api.Fee{

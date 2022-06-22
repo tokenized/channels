@@ -34,6 +34,8 @@ type AncestorTx struct {
 	MinerResponses []json_envelope.JSONEnvelope `bsor:"3" json:"miner_responses,omitempty"` // signed JSON envelope responses from miners for the tx
 }
 
+type AncestorTxs []*AncestorTx
+
 func (tx AncestorTx) GetTxID() *bitcoin.Hash32 {
 	if tx.Tx != nil {
 		return tx.Tx.TxHash()
@@ -74,8 +76,6 @@ func (tx AncestorTx) String() string {
 
 	return string(result.Bytes())
 }
-
-type AncestorTxs []*AncestorTx
 
 func (txs AncestorTxs) GetTx(txid bitcoin.Hash32) *AncestorTx {
 	for _, tx := range txs {
