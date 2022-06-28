@@ -79,6 +79,14 @@ func (etx ExpandedTx) CalculateFee() (uint64, error) {
 	return inputValue - outputValue, nil
 }
 
+func (etx ExpandedTx) InputCount() int {
+	return len(etx.Tx.TxIn)
+}
+
+func (etx ExpandedTx) Input(index int) *wire.TxIn {
+	return etx.Tx.TxIn[index]
+}
+
 func (etx ExpandedTx) InputLockingScript(index int) (bitcoin.Script, error) {
 	if index >= len(etx.Tx.TxIn) {
 		return nil, errors.New("Index out of range")
@@ -101,4 +109,12 @@ func (etx ExpandedTx) InputLockingScript(index int) (bitcoin.Script, error) {
 	}
 
 	return tx.TxOut[txin.PreviousOutPoint.Index].LockingScript, nil
+}
+
+func (etx ExpandedTx) OutputCount() int {
+	return len(etx.Tx.TxOut)
+}
+
+func (etx ExpandedTx) Output(index int) *wire.TxOut {
+	return etx.Tx.TxOut[index]
 }
