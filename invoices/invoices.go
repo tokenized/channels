@@ -213,8 +213,8 @@ func (m *PurchaseOrder) Write() (envelope.Data, error) {
 // Identity is implicit based on the peer channel relationship and the key that signed the message.
 // The vendor can either add an input to the payment tx to sign it directly, or the buyer can retain
 // signatures from the off chain communication to prove the vendor approved the payment. The off
-// chain communication should include a signed TransferRequest message that contains the payment tx which
-// contains the Invoice.
+// chain communication should include a signed TransferRequest message that contains the payment tx
+// which contains the Invoice.
 type Invoice struct {
 	Items      InvoiceItems       `bsor:"1" json:"items"`
 	Notes      *string            `bsor:"2" json:"notes,omitempty"`

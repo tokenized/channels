@@ -55,6 +55,7 @@ type PeerChannels []PeerChannel
 type WrappedMessage struct {
 	Signature *Signature
 	Response  *Response
+	ReplyTo   *ReplyTo
 	MessageID *MessageID
 	Message   Message
 }
@@ -151,6 +152,44 @@ func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
 	return envelopeV1.Wrap(payload).Script()
 }
 
+// WrapWithReplyTo wraps a message with a response id (if specified), adds the message id, signs it,
+// and serializes it.
+func WrapWithReplyTo(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
+	replyTo *ReplyTo, responseID *uint64) (bitcoin.Script, error) {
+
+	payload, err := msg.Write()
+	if err != nil {
+		return nil, errors.Wrap(err, "write")
+	}
+
+	// Don't put two responses in the message.
+	if _, ok := msg.(*Response); !ok && responseID != nil {
+		payload, err = WrapResponseID(payload, *responseID)
+		if err != nil {
+			return nil, errors.Wrap(err, "response")
+		}
+	}
+
+	if replyTo != nil {
+		payload, err = replyTo.Wrap(payload)
+		if err != nil {
+			return nil, errors.Wrap(err, "reply to")
+		}
+	}
+
+	payload, err = WrapMessageID(payload, messageID)
+	if err != nil {
+		return nil, errors.Wrap(err, "message id")
+	}
+
+	payload, err = WrapSignature(payload, key, &hash, false)
+	if err != nil {
+		return nil, errors.Wrap(err, "sign")
+	}
+
+	return envelopeV1.Wrap(payload).Script()
+}
+
 // WrapWithResponse wraps a message with the specified response, adds the message id, signs it, and
 // serializes it.
 func WrapWithResponse(msg Writer, response *Response, key bitcoin.Key, hash bitcoin.Hash32,
@@ -194,6 +233,11 @@ func (ps *Protocols) Unwrap(script []byte) (*WrappedMessage, error) {
 	result.MessageID, payload, err = ParseMessageID(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "message id")
+	}
+
+	result.ReplyTo, payload, err = ParseReplyTo(payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "reply to")
 	}
 
 	result.Response, payload, err = ParseResponse(payload)

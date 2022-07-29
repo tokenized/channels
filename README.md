@@ -14,9 +14,13 @@ Channels abstract away the two way communication to just a message delivery endp
 
 ## Peer Channels
 
-Peer channels (previously SPV channels) can be very scalable and can be directly paid for via this protocol using micro-transactions. At their base they are simply a method for delivering messages of any kind and allowing the owner of the channel to receive them without having to always be online. They are like email stripped down to the very base component. Peer channels are simply a message delivery system for these protocols. They are not meant to retain messages after being read. The application should handle that with a data storage service or something else. Not all messages must be saved, but signed data relating to  establishing identity, invoices, and other data relevant to the supported protocols should be retained indefinitely.
+Peer channels (previously SPV channels) can be very scalable and can be directly paid for via this protocol using micro-transactions. At their base they are simply a method for delivering messages of any kind and allowing the owner of the channel to receive them without having to always be online. They are like email stripped down to the very base component and without requiring an email server to send messages for you. Peer channels are simply a message delivery system for these protocols. They are not meant to retain messages after being read. The application should handle that with a data storage service or something else. Not all messages must be saved, but signed data relating to establishing identity, invoices, and other data relevant to the supported protocols should be retained indefinitely.
 
-An important feature is listening to an entire account on one websocket so if anyone posts to any of your channels you can see it instantly.
+The main idea is that a wallet service that can receive requests/messages won't normally have the user's private keys so can't respond with a signed message, but you can establish a relationship with a user, establish a base key for the relationship, and have all messages signed, ensuring you are directly communicating with the intended party and removing trust from the service.
+
+If we can get most services, agents, and users on a base communication protocol that is accessible to everyone (no domain/IP required) and then have a common messaging structure, then our protocols will be easier to design.
+
+An important feature is listening to an entire account on one websocket so if anyone posts to any of your channels you can see it instantly if you are online and listening.
 
 ### Persistent Communication
 

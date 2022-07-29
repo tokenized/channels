@@ -469,6 +469,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 		logger.Warn(ctx, "Handle messages thread stopped : %s", handleThread.Error())
 	}
 
+	close(incomingMessages)
 	stopper.Stop(ctx)
 	wait.Wait()
 	handleWait.Wait()
