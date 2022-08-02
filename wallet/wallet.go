@@ -9,6 +9,7 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/merkle_proof"
@@ -139,7 +140,7 @@ func (w *Wallet) SetMerkleProofVerifier(m MerkleProofVerifier) {
 
 // CreateBitcoinReceive creates a transaction receiving the specified amount of bitcoin.
 func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Hash32,
-	value uint64) (*channels.ExpandedTx, uint, error) {
+	value uint64) (*expanded_tx.ExpandedTx, uint, error) {
 
 	feeQuotes, err := w.feeQuoter.GetFeeQuotes(ctx)
 	if err != nil {
@@ -164,7 +165,7 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 		return nil, 0, errors.Wrap(err, "break value")
 	}
 
-	etx := &channels.ExpandedTx{
+	etx := &expanded_tx.ExpandedTx{
 		Tx: wire.NewMsgTx(1),
 	}
 
@@ -195,7 +196,7 @@ func (w *Wallet) CreateBitcoinReceive(ctx context.Context, contextID bitcoin.Has
 }
 
 func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx, requirements channels.FeeRequirements) (uint, error) {
+	etx *expanded_tx.ExpandedTx, requirements channels.FeeRequirements) (uint, error) {
 
 	fee := requirements.GetRequirement(merchant_api.FeeTypeStandard)
 	if fee == nil {
@@ -286,7 +287,7 @@ func (w *Wallet) FundTx(ctx context.Context, contextID bitcoin.Hash32,
 }
 
 func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) error {
+	etx *expanded_tx.ExpandedTx) error {
 
 	keys, err := w.GetKeysForTx(ctx, contextID, etx)
 	if err != nil {
@@ -315,7 +316,7 @@ func (w *Wallet) SignTx(ctx context.Context, contextID bitcoin.Hash32,
 }
 
 func (w *Wallet) SelectUTXOs(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) ([]bitcoin.UTXO, error) {
+	etx *expanded_tx.ExpandedTx) ([]bitcoin.UTXO, error) {
 	w.outputsLock.RLock()
 	defer w.outputsLock.RUnlock()
 

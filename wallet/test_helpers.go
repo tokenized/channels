@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/storage"
@@ -123,7 +123,7 @@ func MockUTXOs(ctx context.Context, wallet *Wallet, values ...uint64) []*bitcoin
 		contextID := RandomHash()
 
 		// Create a receive of bitcoin
-		etx := &channels.ExpandedTx{
+		etx := &expanded_tx.ExpandedTx{
 			Tx: MockReceiveTx(ctx, wallet, contextID, value),
 		}
 

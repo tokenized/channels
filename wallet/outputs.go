@@ -10,6 +10,7 @@ import (
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/storage"
 
 	"github.com/pkg/errors"
@@ -41,7 +42,7 @@ type Outputs []*Output
 type OutputsByTimestamp Outputs
 
 func (w *Wallet) GetKeysForTx(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) ([]bitcoin.Key, error) {
+	etx *expanded_tx.ExpandedTx) ([]bitcoin.Key, error) {
 
 	baseKey := w.BaseKey()
 

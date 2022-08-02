@@ -6,6 +6,7 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/logger"
 
 	"github.com/pkg/errors"
@@ -28,7 +29,7 @@ var (
 // Note: If VerifyExpandedTx returned `MissingInput` then this function will fail as the input
 // values are not available.
 func (w *Wallet) VerifyFee(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx, requirements channels.FeeRequirements) error {
+	etx *expanded_tx.ExpandedTx, requirements channels.FeeRequirements) error {
 
 	fee, err := etx.CalculateFee()
 	if err != nil {
@@ -64,7 +65,7 @@ func (w *Wallet) VerifyFee(ctx context.Context, contextID bitcoin.Hash32,
 // funding the tx. It returns the depth of ancestry provided. It can also return MissingInputs or
 // MissingMerkleProofAncestors which don't mean failure, but notify that full ancestry back to
 // merkle proofs were not available.
-func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *channels.ExpandedTx) (uint, error) {
+func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *expanded_tx.ExpandedTx) (uint, error) {
 	highestDepth := uint(0)
 	missingInputs := false
 	missingMerkleProofAncestors := false
@@ -75,7 +76,7 @@ func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *channels.ExpandedT
 
 		depth, err := w.addAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, 0)
 		if err != nil {
-			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
+			if errors.Cause(err) != expanded_tx.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 			}
 
@@ -92,28 +93,28 @@ func (w *Wallet) PopulateExpandedTx(ctx context.Context, etx *channels.ExpandedT
 	}
 
 	if missingInputs {
-		return highestDepth, channels.MissingInput
+		return highestDepth, expanded_tx.MissingInput
 	}
 
 	if missingMerkleProofAncestors {
-		return highestDepth, channels.MissingMerkleProofAncestors
+		return highestDepth, expanded_tx.MissingMerkleProofAncestors
 	}
 
 	return highestDepth, nil
 }
 
-func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, txid bitcoin.Hash32,
-	depth uint) (uint, error) {
+func (w *Wallet) addAncestorTx(ctx context.Context, etx *expanded_tx.ExpandedTx,
+	txid bitcoin.Hash32, depth uint) (uint, error) {
 
 	tx, err := fetchTx(ctx, w.store, txid)
 	if err != nil {
 		return 0, errors.Wrap(err, "fetch tx")
 	}
 	if tx == nil {
-		return depth, channels.MissingMerkleProofAncestors
+		return depth, expanded_tx.MissingMerkleProofAncestors
 	}
 
-	ancestor := &channels.AncestorTx{
+	ancestor := &expanded_tx.AncestorTx{
 		Tx: tx.Tx,
 	}
 	etx.Ancestors = append(etx.Ancestors, ancestor)
@@ -137,7 +138,7 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 
 		parentDepth, err := w.addAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, depth+1)
 		if err != nil {
-			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
+			if errors.Cause(err) != expanded_tx.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 			}
 			missingMerkleProofAncestors = true
@@ -149,7 +150,7 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 	}
 
 	if missingMerkleProofAncestors {
-		return highestDepth, channels.MissingMerkleProofAncestors
+		return highestDepth, expanded_tx.MissingMerkleProofAncestors
 	}
 
 	return highestDepth, nil
@@ -159,7 +160,7 @@ func (w *Wallet) addAncestorTx(ctx context.Context, etx *channels.ExpandedTx, tx
 // provided. It can also return MissingInputs or MissingMerkleProofAncestors which don't mean
 // failure, but notify that full ancestry back to merkle proofs were not provided.
 func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
-	etx *channels.ExpandedTx) (uint, error) {
+	etx *expanded_tx.ExpandedTx) (uint, error) {
 
 	verified := make(map[bitcoin.Hash32]bool)
 	highestDepth := uint(0)
@@ -169,7 +170,7 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 		depth, err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, 0,
 			&verified)
 		if err != nil {
-			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
+			if errors.Cause(err) != expanded_tx.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txin.PreviousOutPoint.Hash.String())
 			}
 
@@ -255,17 +256,17 @@ func (w *Wallet) VerifyExpandedTx(ctx context.Context, contextID bitcoin.Hash32,
 	}
 
 	if missingInputs {
-		return highestDepth, channels.MissingInput
+		return highestDepth, expanded_tx.MissingInput
 	}
 
 	if missingMerkleProofAncestors {
-		return highestDepth, channels.MissingMerkleProofAncestors
+		return highestDepth, expanded_tx.MissingMerkleProofAncestors
 	}
 
 	return highestDepth, nil
 }
 
-func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
+func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *expanded_tx.ExpandedTx,
 	txid bitcoin.Hash32, depth uint, verified *map[bitcoin.Hash32]bool) (uint, error) {
 
 	if _, exists := (*verified)[txid]; exists {
@@ -274,7 +275,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 
 	atx := etx.Ancestors.GetTx(txid)
 	if atx == nil {
-		return depth, errors.Wrap(channels.MissingMerkleProofAncestors, txid.String())
+		return depth, errors.Wrap(expanded_tx.MissingMerkleProofAncestors, txid.String())
 	}
 
 	if len(atx.MerkleProofs) > 0 {
@@ -298,7 +299,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 
 	tx := atx.GetTx()
 	if tx == nil {
-		return depth, errors.Wrap(channels.MissingMerkleProofAncestors, txid.String())
+		return depth, errors.Wrap(expanded_tx.MissingMerkleProofAncestors, txid.String())
 	}
 
 	highestDepth := uint(0)
@@ -307,7 +308,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 		parentDepth, err := w.verifyAncestorTx(ctx, etx, txin.PreviousOutPoint.Hash, depth+1,
 			verified)
 		if err != nil {
-			if errors.Cause(err) != channels.MissingMerkleProofAncestors {
+			if errors.Cause(err) != expanded_tx.MissingMerkleProofAncestors {
 				return 0, errors.Wrap(err, txid.String())
 			}
 			missingMerkleProofAncestors = true
@@ -321,7 +322,7 @@ func (w *Wallet) verifyAncestorTx(ctx context.Context, etx *channels.ExpandedTx,
 	(*verified)[txid] = true
 
 	if missingMerkleProofAncestors {
-		return highestDepth, channels.MissingMerkleProofAncestors
+		return highestDepth, expanded_tx.MissingMerkleProofAncestors
 	}
 	return highestDepth, nil
 }

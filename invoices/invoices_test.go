@@ -10,6 +10,7 @@ import (
 	"github.com/tokenized/channels"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/go-test/deep"
@@ -168,7 +169,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 	t.Logf("Tx (%d bytes) : %s", tx.SerializeSize(), tx)
 
 	msg := &TransferRequest{
-		Tx: &channels.ExpandedTx{
+		Tx: &expanded_tx.ExpandedTx{
 			Tx: tx,
 		},
 	}

@@ -132,7 +132,8 @@ func (m *Message) SetResponse(script bitcoin.Script) {
 }
 
 func (m *Message) Reject(reject *channels.Response) error {
-	reject.MessageID = m.ID()
+	messageID := m.ID()
+	reject.MessageID = &messageID
 
 	payload, err := reject.Wrap(envelope.Data{})
 	if err != nil {

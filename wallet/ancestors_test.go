@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/wire"
 
@@ -129,9 +130,9 @@ func Test_PopulateExpandedTx_MissingInput(t *testing.T) {
 	etx.Ancestors = etx.Ancestors[:1]
 
 	depth, err := receiverWallet.VerifyExpandedTx(ctx, contextID, etx)
-	if errors.Cause(err) != channels.MissingInput {
+	if errors.Cause(err) != expanded_tx.MissingInput {
 		t.Fatalf("Verify expanded tx returned wrong error : got %s, want %s", err,
-			channels.MissingInput)
+			expanded_tx.MissingInput)
 	}
 	t.Logf("Depth %d", depth)
 
@@ -176,9 +177,9 @@ func Test_PopulateExpandedTx_MissingMerkleProofAncestors(t *testing.T) {
 	etx.Ancestors = etx.Ancestors[:len(etx.Ancestors)-1]
 
 	depth, err := receiverWallet.VerifyExpandedTx(ctx, contextID, etx)
-	if errors.Cause(err) != channels.MissingMerkleProofAncestors {
+	if errors.Cause(err) != expanded_tx.MissingMerkleProofAncestors {
 		t.Fatalf("Verify expanded tx returned wrong error : got %s, want %s", err,
-			channels.MissingMerkleProofAncestors)
+			expanded_tx.MissingMerkleProofAncestors)
 	}
 	t.Logf("Depth %d", depth)
 

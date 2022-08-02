@@ -9,6 +9,7 @@ import (
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -246,7 +247,7 @@ func (m *Invoice) Write() (envelope.Data, error) {
 // TransferRequest is an incomplete tx that includes an output containing the Invoice message and
 // transfers of requested tokens/bitcoin for the items contained in the invoice.
 type TransferRequest struct {
-	Tx   *channels.ExpandedTx     `bsor:"1" json:"tx"`
+	Tx   *expanded_tx.ExpandedTx  `bsor:"1" json:"tx"`
 	Fees channels.FeeRequirements `bsor:"2" json:"fees"` // tx fee requirements
 }
 
@@ -274,7 +275,7 @@ func (m *TransferRequest) Write() (envelope.Data, error) {
 
 // Transfer is a payment transaction that embeds the approved invoice.
 type Transfer struct {
-	Tx *channels.ExpandedTx `bsor:"1" json:"tx"`
+	Tx *expanded_tx.ExpandedTx `bsor:"1" json:"tx"`
 }
 
 func (*Transfer) ProtocolID() envelope.ProtocolID {
@@ -339,7 +340,7 @@ func (t Transfer) Fulfills(request *TransferRequest) bool {
 // transfer message. It should contain the final expanded tx if the acceptor signed any inputs or
 // made any changes to the tx that effected its txid.
 type TransferAccept struct {
-	Tx *channels.ExpandedTx `bsor:"1" json:"tx"`
+	Tx *expanded_tx.ExpandedTx `bsor:"1" json:"tx"`
 }
 
 func (*TransferAccept) ProtocolID() envelope.ProtocolID {

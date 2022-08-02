@@ -123,7 +123,7 @@ func (ps *Protocols) ResponseCodeToString(protocolID envelope.ProtocolID, code u
 
 // Wrap wraps a message with a response id (if specified), adds the message id, signs it, and
 // serializes it.
-func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
+func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID *uint64,
 	responseID *uint64) (bitcoin.Script, error) {
 
 	payload, err := msg.Write()
@@ -139,9 +139,11 @@ func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
 		}
 	}
 
-	payload, err = WrapMessageID(payload, messageID)
-	if err != nil {
-		return nil, errors.Wrap(err, "message id")
+	if messageID != nil {
+		payload, err = WrapMessageID(payload, *messageID)
+		if err != nil {
+			return nil, errors.Wrap(err, "message id")
+		}
 	}
 
 	payload, err = WrapSignature(payload, key, &hash, false)
@@ -154,8 +156,8 @@ func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
 
 // WrapWithReplyTo wraps a message with a response id (if specified), adds the message id, signs it,
 // and serializes it.
-func WrapWithReplyTo(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID uint64,
-	replyTo *ReplyTo, responseID *uint64) (bitcoin.Script, error) {
+func WrapWithReplyTo(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID *uint64,
+	replyTo *ReplyTo, responseID *uint64, includeKey bool) (bitcoin.Script, error) {
 
 	payload, err := msg.Write()
 	if err != nil {
@@ -177,12 +179,14 @@ func WrapWithReplyTo(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID
 		}
 	}
 
-	payload, err = WrapMessageID(payload, messageID)
-	if err != nil {
-		return nil, errors.Wrap(err, "message id")
+	if messageID != nil {
+		payload, err = WrapMessageID(payload, *messageID)
+		if err != nil {
+			return nil, errors.Wrap(err, "message id")
+		}
 	}
 
-	payload, err = WrapSignature(payload, key, &hash, false)
+	payload, err = WrapSignature(payload, key, &hash, includeKey)
 	if err != nil {
 		return nil, errors.Wrap(err, "sign")
 	}
@@ -193,7 +197,7 @@ func WrapWithReplyTo(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID
 // WrapWithResponse wraps a message with the specified response, adds the message id, signs it, and
 // serializes it.
 func WrapWithResponse(msg Writer, response *Response, key bitcoin.Key, hash bitcoin.Hash32,
-	messageID uint64) (bitcoin.Script, error) {
+	messageID *uint64) (bitcoin.Script, error) {
 
 	payload, err := msg.Write()
 	if err != nil {
@@ -205,9 +209,11 @@ func WrapWithResponse(msg Writer, response *Response, key bitcoin.Key, hash bitc
 		return nil, errors.Wrap(err, "response")
 	}
 
-	payload, err = WrapMessageID(payload, messageID)
-	if err != nil {
-		return nil, errors.Wrap(err, "message id")
+	if messageID != nil {
+		payload, err = WrapMessageID(payload, *messageID)
+		if err != nil {
+			return nil, errors.Wrap(err, "message id")
+		}
 	}
 
 	payload, err = WrapSignature(payload, key, &hash, false)

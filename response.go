@@ -60,7 +60,7 @@ type Status uint32
 
 // Response is used to identify that a message is in response to a previous message.
 type Response struct {
-	MessageID      uint64              `bsor:"1" json:"message_id"`
+	MessageID      *uint64             `bsor:"1" json:"message_id"`
 	Status         Status              `bsor:"2" json:"status,omitempty"`
 	CodeProtocolID envelope.ProtocolID `bsor:"3" json:"protocol_id,omitempty"`
 	Code           uint32              `bsor:"4" json:"code,omitempty"` // Protocol specific codes
@@ -84,7 +84,7 @@ func (*Response) ProtocolID() envelope.ProtocolID {
 // the new payload containing the response.
 func WrapResponseID(payload envelope.Data, responseID uint64) (envelope.Data, error) {
 	response := &Response{
-		MessageID: responseID,
+		MessageID: &responseID,
 	}
 
 	return response.Wrap(payload)

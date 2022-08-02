@@ -220,7 +220,8 @@ func (c *Channel) CreateMessage(ctx context.Context, msg channels.Writer,
 		return nil, errors.Wrap(err, "new message")
 	}
 
-	script, err := channels.Wrap(msg, c.Key(), wallet.RandomHash(), newMessage.ID(), responseID)
+	messageID := newMessage.ID()
+	script, err := channels.Wrap(msg, c.Key(), wallet.RandomHash(), &messageID, responseID)
 	if err != nil {
 		return nil, errors.Wrap(err, "wrap")
 	}
@@ -262,8 +263,9 @@ func (c *Channel) SendResponse(ctx context.Context, msg channels.Writer,
 		return 0, errors.Wrap(err, "new message")
 	}
 
+	messageID := message.ID()
 	script, err := channels.WrapWithResponse(msg, response, c.Key(), wallet.RandomHash(),
-		message.ID())
+		&messageID)
 	if err != nil {
 		return 0, errors.Wrap(err, "wrap")
 	}
@@ -273,7 +275,7 @@ func (c *Channel) SendResponse(ctx context.Context, msg channels.Writer,
 		return 0, errors.Wrap(err, "send")
 	}
 
-	if err := c.MarkMessageIsProcessed(ctx, response.MessageID); err != nil {
+	if err := c.MarkMessageIsProcessed(ctx, *response.MessageID); err != nil {
 		return 0, errors.Wrap(err, "mark processed")
 	}
 
@@ -357,7 +359,7 @@ func (c *Channel) ProcessMessage(ctx context.Context, protocols *channels.Protoc
 
 	if wrap.Response != nil {
 		logger.InfoWithFields(ctx, []logger.Field{
-			logger.Uint64("response_id", wrap.Response.MessageID),
+			logger.Uint64("response_id", *wrap.Response.MessageID),
 		}, "Response")
 	}
 
@@ -529,7 +531,7 @@ func (c *Channel) transferAccept(ctx context.Context, protocols *channels.Protoc
 	}
 
 	// Find tx in Transfer to which the TransferAccept is a response.
-	if wrap.Response == nil {
+	if wrap.Response == nil || wrap.Response.MessageID == nil {
 		if err := msg.Reject(&channels.Response{
 			Status:         channels.StatusInvalid,
 			CodeProtocolID: invoices.ProtocolID,
@@ -541,7 +543,7 @@ func (c *Channel) transferAccept(ctx context.Context, protocols *channels.Protoc
 		return nil
 	}
 
-	transferMsg, err := c.outgoing.GetMessage(ctx, wrap.Response.MessageID)
+	transferMsg, err := c.outgoing.GetMessage(ctx, *wrap.Response.MessageID)
 	if err != nil {
 		if errors.Cause(err) == ErrMessageNotFound {
 			if err := msg.Reject(&channels.Response{

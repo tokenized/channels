@@ -12,6 +12,7 @@ import (
 	"github.com/tokenized/channels/merkle_proofs"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/expanded_tx"
 	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/merchant_api"
 	"github.com/tokenized/pkg/merkle_proof"
@@ -101,7 +102,7 @@ func Test_Invoice(t *testing.T) {
 	t.Logf("Invoice tx : %s", tx.String())
 
 	invoiceTx := &invoices.TransferRequest{
-		Tx: &channels.ExpandedTx{
+		Tx: &expanded_tx.ExpandedTx{
 			Tx: tx,
 		},
 		Fees: channels.FeeRequirements{
@@ -184,9 +185,9 @@ func Test_Invoice(t *testing.T) {
 	fakeMerkleProof := MockMerkleProof(previousTx)
 
 	payment := &invoices.Transfer{
-		Tx: &channels.ExpandedTx{
+		Tx: &expanded_tx.ExpandedTx{
 			Tx: txb.MsgTx,
-			Ancestors: channels.AncestorTxs{
+			Ancestors: expanded_tx.AncestorTxs{
 				{
 					MerkleProofs: []*merkle_proof.MerkleProof{
 						fakeMerkleProof,
