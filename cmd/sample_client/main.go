@@ -18,12 +18,12 @@ import (
 	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/config"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
-	"github.com/tokenized/pkg/threads"
 	spyNodeClient "github.com/tokenized/spynode/pkg/client"
+	"github.com/tokenized/threads"
 )
 
 type Config struct {
@@ -95,6 +95,14 @@ func main() {
 		logger.Fatal(ctx, "Failed to load client : %s", err)
 	}
 
+	var spyNodeWait sync.WaitGroup
+	spyNodeThread := threads.NewInterruptableThread("SpyNode", spyNodeClient.Run)
+	spyNodeThread.SetWait(&spyNodeWait)
+	defer func() {
+		spyNodeThread.Stop(ctx)
+		spyNodeWait.Wait()
+	}()
+
 	switch args[1] {
 	case "listen":
 		listen(ctx, client, spyNodeClient, args[2:]...)
@@ -163,12 +171,6 @@ func get_tx(ctx context.Context, client *sample_client.Client,
 		return
 	}
 
-	if err := spClient.Connect(ctx); err != nil {
-		fmt.Printf("Failed to connect to spynode : %s\n", err)
-		return
-	}
-	defer spClient.Close(ctx)
-
 	tx, err := spClient.GetTx(ctx, *txid)
 	if err != nil {
 		fmt.Printf("Failed to get tx : %s\n", err)
@@ -223,12 +225,6 @@ func transfer(ctx context.Context, protocols *channels.Protocols, client *sample
 		fmt.Printf("Message is not a transfer request\n")
 		return
 	}
-
-	if err := spClient.Connect(ctx); err != nil {
-		fmt.Printf("Failed to connect to spynode : %s\n", err)
-		return
-	}
-	defer spClient.Close(ctx)
 
 	if _, err := client.Wallet.FundTx(ctx, *channelHash, request.Tx, request.Fees); err != nil {
 		fmt.Printf("Failed to fund transfer : %s\n", err)
@@ -383,12 +379,6 @@ func receive(ctx context.Context, client *sample_client.Client,
 		return
 	}
 
-	if err := spClient.Connect(ctx); err != nil {
-		fmt.Printf("Failed to connect to spynode : %s\n", err)
-		return
-	}
-	defer spClient.Close(ctx)
-
 	tx, _, err := client.Wallet.CreateBitcoinReceive(ctx, wallet.RandomHash(), uint64(value))
 	if err != nil {
 		fmt.Printf("Failed to create bitcoin receive : %s\n", err)
@@ -522,17 +512,9 @@ func listen(ctx context.Context, client *sample_client.Client,
 
 	var wait sync.WaitGroup
 	var stopper threads.StopCombiner
-	spynodeErrors := make(chan error, 1)
-	spyNodeClient.SetListenerErrorChannel(&spynodeErrors)
 
-	if err := spyNodeClient.Connect(ctx); err != nil {
-		logger.Error(ctx, "Failed to connect to spynode : %s", err)
-		return
-	}
-
-	clientThread := threads.NewThread("Client", client.Run)
-	clientThread.SetWait(&wait)
-	clientComplete := clientThread.GetCompleteChannel()
+	clientThread, clientComplete := threads.NewInterruptableThreadComplete("Client", client.Run,
+		&wait)
 	stopper.Add(clientThread)
 
 	osSignals := make(chan os.Signal, 1)
@@ -552,7 +534,6 @@ func listen(ctx context.Context, client *sample_client.Client,
 	}
 
 	stopper.Stop(ctx)
-	spyNodeClient.Close(ctx)
 	wait.Wait()
 
 	if err := clientThread.Error(); err != nil {

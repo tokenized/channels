@@ -6,9 +6,11 @@ require (
 	github.com/go-test/deep v1.0.8
 	github.com/google/uuid v1.3.0
 	github.com/pkg/errors v0.9.1
-	github.com/tokenized/config v0.2.1
-	github.com/tokenized/envelope v1.0.1-0.20220624212027-b93ec1f54d23
-	github.com/tokenized/pkg v0.4.1-0.20220805182155-53c258623397
-	github.com/tokenized/specification v1.1.2-0.20220729003018-5c2f30a2134c
-	github.com/tokenized/spynode v0.2.2-0.20220628035011-9815320ab778
+	github.com/tokenized/config v0.2.2-0.20220902160347-43a4340c357e
+	github.com/tokenized/envelope v1.0.1-0.20220902162954-c431b788f500
+	github.com/tokenized/logger v0.1.0
+	github.com/tokenized/pkg v0.4.1-0.20220902192427-a00dc57bbeb3
+	github.com/tokenized/specification v1.1.2-0.20220902163651-058d13f0a70f
+	github.com/tokenized/spynode v0.2.2-0.20220902163745-06e7a19f49ee
+	github.com/tokenized/threads v0.1.1-0.20220902155404-d844f8ac41b5
 )

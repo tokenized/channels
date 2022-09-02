@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tokenized/pkg/logger"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/peer_channels"
 )
 

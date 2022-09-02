@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"reflect"
 	"sync"
 
 	"github.com/tokenized/channels"
@@ -14,13 +15,13 @@ import (
 	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/merkle_proof"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
-	"github.com/tokenized/pkg/threads"
 	"github.com/tokenized/pkg/wire"
+	"github.com/tokenized/threads"
 
 	"github.com/pkg/errors"
 )
@@ -66,7 +67,7 @@ type Client struct {
 
 	channelHashes []bitcoin.Hash32 // used to load channels from storage
 
-	accountThread  *threads.Thread
+	accountThread  threads.Thread
 	channelThreads threads.Threads
 
 	lock sync.RWMutex
@@ -374,17 +375,14 @@ func (c *Client) CloseIncomingChannel(ctx context.Context) {
 }
 
 func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
+	var selects []reflect.SelectCase
 	var wait sync.WaitGroup
 	incomingMessages := make(chan peer_channels.Message, 100)
 	var stopper threads.StopCombiner
-	errorChan := make(chan error, 20)
-	errorFunc := func(ctx context.Context, err error) {
-		errorChan <- err
-	}
 
 	c.lock.Lock()
 
-	var accountThread *threads.Thread
+	var accountThread *threads.InterruptableThread
 	if c.peerChannelsAccountID != nil {
 		logger.InfoWithFields(ctx, []logger.Field{
 			logger.String("url", *c.peerChannelsBaseURL),
@@ -397,14 +395,18 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 			return errors.Wrap(err, "create account client")
 		}
 
-		accountThread = threads.NewThread("Listen for Account Messages", func(ctx context.Context,
-			interrupt <-chan interface{}) error {
-			return accountClient.Listen(ctx, true, incomingMessages, interrupt)
-		})
-		accountThread.SetWait(&wait)
-		accountThread.SetOnComplete(errorFunc)
-		c.accountThread = accountThread
+		thread, complete := threads.NewInterruptableThreadComplete("Listen for Account Messages",
+			func(ctx context.Context, interrupt <-chan interface{}) error {
+				return accountClient.Listen(ctx, true, incomingMessages, interrupt)
+			}, &wait)
+		c.accountThread = thread
+		accountThread = thread
 		stopper.Add(accountThread)
+
+		selects = append(selects, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(complete),
+		})
 	}
 
 	var channelThreads threads.Threads
@@ -426,28 +428,39 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 				return errors.Wrap(err, "create peer channel client")
 			}
 
-			channelThread := threads.NewThread("Listen for Channel Messages", func(ctx context.Context,
-				interrupt <-chan interface{}) error {
-				return client.Listen(ctx, peerChannel.ReadToken, true, incomingMessages, interrupt)
-			})
-			channelThread.SetWait(&wait)
-			channelThread.SetOnComplete(errorFunc)
-			stopper.Add(channelThread)
+			thread, complete := threads.NewInterruptableThreadComplete("Listen for Channel Messages",
+				func(ctx context.Context, interrupt <-chan interface{}) error {
+					return client.Listen(ctx, peerChannel.ReadToken, true, incomingMessages,
+						interrupt)
+				}, &wait)
+			stopper.Add(thread)
 
-			c.channelThreads = append(c.channelThreads, channelThread)
-			channelThreads = append(channelThreads, channelThread)
+			c.channelThreads = append(c.channelThreads, thread)
+			channelThreads = append(channelThreads, thread)
+
+			selects = append(selects, reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(complete),
+			})
 		}
 	}
 
 	c.lock.Unlock()
 
-	var handleWait sync.WaitGroup
-	handleThread := threads.NewThreadWithoutStop("Handle Messages",
+	handleThread, handleThreadComplete := threads.NewUninterruptableThreadComplete("Handle Messages",
 		func(ctx context.Context) error {
 			return c.handleMessages(ctx, incomingMessages)
-		})
-	handleThread.SetWait(&handleWait)
-	handleThreadComplete := handleThread.GetCompleteChannel()
+		}, &wait)
+	handleSelectIndex := len(selects)
+	selects = append(selects, reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(handleThreadComplete),
+	})
+
+	selects = append(selects, reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(interrupt),
+	})
 
 	if accountThread != nil {
 		accountThread.Start(ctx)
@@ -457,22 +470,28 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	}
 	handleThread.Start(ctx)
 
-	var listenErr error
-	select {
-	case <-interrupt:
+	index, selectValue, valueReceived := reflect.Select(selects)
+	var selectErr, listenErr error
+	if valueReceived {
+		selectInterface := selectValue.Interface()
+		if selectInterface != nil {
+			err, ok := selectInterface.(error)
+			if ok {
+				selectErr = err
+			}
+		}
+	}
 
-	case err := <-errorChan:
-		listenErr = err
-		logger.Warn(ctx, "One of the listen threads stopped : %s", err)
-
-	case <-handleThreadComplete:
-		logger.Warn(ctx, "Handle messages thread stopped : %s", handleThread.Error())
+	if index == handleSelectIndex {
+		logger.Warn(ctx, "Handle messages thread stopped : %s", selectErr)
+	} else if index < handleSelectIndex {
+		logger.Warn(ctx, "One of the listen threads stopped : %s", selectErr)
+		listenErr = selectErr
 	}
 
 	close(incomingMessages)
 	stopper.Stop(ctx)
 	wait.Wait()
-	handleWait.Wait()
 	return listenErr
 }
 

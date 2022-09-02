@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/expanded_tx"
-	"github.com/tokenized/pkg/logger"
 
 	"github.com/pkg/errors"
 )

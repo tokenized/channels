@@ -8,12 +8,12 @@ import (
 	"github.com/tokenized/channels"
 	channelsClient "github.com/tokenized/channels/client"
 	"github.com/tokenized/channels/wallet"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
-	"github.com/tokenized/pkg/threads"
 	spyNodeClient "github.com/tokenized/spynode/pkg/client"
+	"github.com/tokenized/threads"
 
 	"github.com/pkg/errors"
 )
@@ -84,12 +84,11 @@ func (c *Client) Save(ctx context.Context) error {
 func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	var wait sync.WaitGroup
 
-	clientThread := threads.NewThread("Client", c.ChannelsClient.Run)
-	clientThread.SetWait(&wait)
-	clientComplete := clientThread.GetCompleteChannel()
+	clientThread, clientComplete := threads.NewInterruptableThreadComplete("Client",
+		c.ChannelsClient.Run, &wait)
 
 	incomingMessages := c.ChannelsClient.GetIncomingChannel(ctx)
-	incomingThread := threads.NewThreadWithoutStop("Incoming",
+	incomingThread, incomingComplete := threads.NewUninterruptableThreadComplete("Incoming",
 		func(ctx context.Context) error {
 			for msg := range incomingMessages {
 				if err := c.handleMessage(ctx, msg); err != nil {
@@ -98,9 +97,7 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 			}
 
 			return nil
-		})
-	incomingThread.SetWait(&wait)
-	incomingComplete := incomingThread.GetCompleteChannel()
+		}, &wait)
 
 	clientThread.Start(ctx)
 	incomingThread.Start(ctx)

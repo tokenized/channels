@@ -6,8 +6,8 @@ import (
 
 	"github.com/tokenized/channels/client"
 	"github.com/tokenized/channels/wallet"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/peer_channels"
 	"github.com/tokenized/pkg/storage"
 )

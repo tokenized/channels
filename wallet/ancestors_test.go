@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/tokenized/channels"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/expanded_tx"
-	"github.com/tokenized/pkg/logger"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"

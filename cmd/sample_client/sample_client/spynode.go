@@ -5,8 +5,8 @@ import (
 
 	"github.com/tokenized/channels/merkle_proofs"
 	"github.com/tokenized/channels/wallet"
+	"github.com/tokenized/logger"
 	"github.com/tokenized/pkg/bitcoin"
-	"github.com/tokenized/pkg/logger"
 	spyNodeClient "github.com/tokenized/spynode/pkg/client"
 
 	"github.com/pkg/errors"
