@@ -14,45 +14,57 @@ import (
 )
 
 const (
-	ChannelsVersion = uint8(0)
+	Version = uint8(0)
+
+	// ResponseCodeTxRejected means the tx was rejected by the Bitcoin network.
+	ResponseCodeTxRejected = uint32(1)
+
+	// ResponseCodeMissingInputs means that neither spent outputs or ancestors were provided for the
+	// inputs in the tx. Some applications may need this data to properly process a transaction.
+	ResponseCodeMissingInputs = uint32(2)
+
+	// ResponseCodeMissingAncestors means that ancestors were not provided for the inputs in the tx.
+	// Spent outputs may have been provided, but full ancestor transactions are required. Some
+	// applications may need this data to properly process a transaction.
+	ResponseCodeMissingAncestors = uint32(3)
+
+	// ResponseCodeTxFeeTooLow means the tx miner fee is too low.
+	ResponseCodeTxFeeTooLow = uint32(4)
 )
 
 var (
-	ChannelsProtocolID = envelope.ProtocolID("ETX") // Protocol ID for teller
+	ProtocolID = envelope.ProtocolID("ETX") // Protocol ID for expanded tx
 )
 
-type ChannelsProtocol struct{}
+type Protocol struct{}
 
 // ExpandedTx is a channels protocol message that contains an expanded tx. It can't be embedded in
 // the base expanded_tx package because it is a circular dependency with the channels.Message.
 type ExpandedTxMessage expanded_tx.ExpandedTx
 
-func NewProtocol() *ChannelsProtocol {
-	return &ChannelsProtocol{}
+func NewProtocol() *Protocol {
+	return &Protocol{}
 }
 
-func (*ChannelsProtocol) ProtocolID() envelope.ProtocolID {
-	return ChannelsProtocolID
+func (*Protocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolID
 }
 
-func (*ChannelsProtocol) Parse(payload envelope.Data) (channels.Message, error) {
+func (*Protocol) Parse(payload envelope.Data) (channels.Message, error) {
 	return Parse(payload)
 }
 
-func (*ChannelsProtocol) ResponseCodeToString(code uint32) string {
-	switch code {
-	default:
-		return "parse_error"
-	}
+func (*Protocol) ResponseCodeToString(code uint32) string {
+	return ResponseCodeToString(code)
 }
 
 func (*ExpandedTxMessage) ProtocolID() envelope.ProtocolID {
-	return ChannelsProtocolID
+	return ProtocolID
 }
 
 func (m *ExpandedTxMessage) Write() (envelope.Data, error) {
 	// Version
-	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(ChannelsVersion))}
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 
 	// Message
 	msgScriptItems, err := bsor.Marshal(m)
@@ -61,7 +73,7 @@ func (m *ExpandedTxMessage) Write() (envelope.Data, error) {
 	}
 	payload = append(payload, msgScriptItems...)
 
-	return envelope.Data{envelope.ProtocolIDs{ChannelsProtocolID}, payload}, nil
+	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
 
 func Parse(payload envelope.Data) (channels.Message, error) {
@@ -69,7 +81,7 @@ func Parse(payload envelope.Data) (channels.Message, error) {
 		return nil, nil
 	}
 
-	if !bytes.Equal(payload.ProtocolIDs[0], ChannelsProtocolID) {
+	if !bytes.Equal(payload.ProtocolIDs[0], ProtocolID) {
 		return nil, nil
 	}
 
@@ -96,4 +108,19 @@ func Parse(payload envelope.Data) (channels.Message, error) {
 	}
 
 	return result, nil
+}
+
+func ResponseCodeToString(code uint32) string {
+	switch code {
+	case ResponseCodeTxRejected:
+		return "tx_rejected"
+	case ResponseCodeMissingInputs:
+		return "missing_inputs"
+	case ResponseCodeMissingAncestors:
+		return "missing_ancestors"
+	case ResponseCodeTxFeeTooLow:
+		return "tx_fee_too_low"
+	default:
+		return "parse_error"
+	}
 }
