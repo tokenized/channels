@@ -54,9 +54,7 @@ type Client struct {
 	channels Channels
 
 	// Used to create new channels
-	peerChannelsBaseURL      *string
-	peerChannelsAccountID    *string
-	peerChannelsAccountToken *string
+	peerChannelsAccount *peer_channels.Account
 
 	store               storage.StreamReadWriter
 	wallet              Wallet
@@ -107,44 +105,27 @@ func (c *Client) Protocols() *channels.Protocols {
 	return c.protocols
 }
 
-func (c *Client) SetPeerChannelsURL(url string) {
+func (c *Client) SetPeerChannelsAccount(account peer_channels.Account) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.peerChannelsBaseURL = &url
-}
-
-func (c *Client) SetPeerChannelsAccount(id, token string) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	c.peerChannelsAccountID = &id
-	c.peerChannelsAccountToken = &token
+	c.peerChannelsAccount = &account
 }
 
 func (c *Client) createPeerChannelsClient(ctx context.Context) (peer_channels.Client, error) {
-	if c.peerChannelsBaseURL == nil {
-		return nil, errors.New("Missing Peer Channels Base URL")
+	if c.peerChannelsAccount == nil {
+		return nil, errors.New("Missing Peer Channels Account")
 	}
 
-	return c.peerChannelsFactory.NewClient(*c.peerChannelsBaseURL)
+	return c.peerChannelsFactory.NewClient(c.peerChannelsAccount.BaseURL)
 }
 
 func (c *Client) createPeerChannelsAccountClient(ctx context.Context) (peer_channels.AccountClient, error) {
-	if c.peerChannelsBaseURL == nil {
-		return nil, errors.New("Missing Peer Channels Base URL")
+	if c.peerChannelsAccount == nil {
+		return nil, errors.New("Missing Peer Channels Account")
 	}
 
-	if c.peerChannelsAccountID == nil {
-		return nil, errors.New("Missing Peer Channels Account ID")
-	}
-
-	if c.peerChannelsAccountToken == nil {
-		return nil, errors.New("Missing Peer Channels Account Token")
-	}
-
-	return c.peerChannelsFactory.NewAccountClient(*c.peerChannelsBaseURL, *c.peerChannelsAccountID,
-		*c.peerChannelsAccountToken)
+	return c.peerChannelsFactory.NewAccountClient(*c.peerChannelsAccount)
 }
 
 func (c *Client) BaseKey() bitcoin.Key {
@@ -281,8 +262,8 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.peerChannelsBaseURL == nil {
-		return nil, errors.New("Missing Peer Channels Base URL")
+	if c.peerChannelsAccount == nil {
+		return nil, errors.New("Missing Peer Channels Account")
 	}
 
 	hash, key := wallet.GenerateHashKey(c.baseKey, contextID)
@@ -293,7 +274,7 @@ func (c *Client) CreateInitialServiceChannel(ctx context.Context,
 
 	peerChannels := channels.PeerChannels{
 		{
-			BaseURL: *c.peerChannelsBaseURL,
+			BaseURL: c.peerChannelsAccount.BaseURL,
 			ID:      channelID,
 			// Only set the read token when the channel isn't part of the client's peer channel account
 			ReadToken: channelToken,
@@ -383,10 +364,10 @@ func (c *Client) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	c.lock.Lock()
 
 	var accountThread *threads.InterruptableThread
-	if c.peerChannelsAccountID != nil {
+	if c.peerChannelsAccount != nil {
 		logger.InfoWithFields(ctx, []logger.Field{
-			logger.String("url", *c.peerChannelsBaseURL),
-			logger.String("account", *c.peerChannelsAccountID),
+			logger.String("url", c.peerChannelsAccount.BaseURL),
+			logger.String("account", c.peerChannelsAccount.AccountID),
 		}, "Listening for messages on account")
 
 		accountClient, err := c.createPeerChannelsAccountClient(ctx)
@@ -558,7 +539,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 		c.lock.Lock()
 
 		// Assume the channel is under the account
-		if c.peerChannelsAccountID == nil || c.peerChannelsAccountToken == nil {
+		if c.peerChannelsAccount == nil || len(c.peerChannelsAccount.Token) == 0 {
 			c.lock.Unlock()
 			return errors.New("No account or token to mark message as read")
 		}
@@ -569,7 +550,7 @@ func (c *Client) handleMessage(ctx context.Context, message *peer_channels.Messa
 			return errors.Wrap(err, "create peer channels client")
 		}
 
-		if err := client.MarkMessages(ctx, peerChannel.ID, *c.peerChannelsAccountToken,
+		if err := client.MarkMessages(ctx, peerChannel.ID, c.peerChannelsAccount.Token,
 			message.Sequence, true, true); err != nil {
 			c.lock.Unlock()
 			return errors.Wrap(err, "mark message read account")

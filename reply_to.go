@@ -22,7 +22,7 @@ var (
 
 // ReplyTo is used to identify that a message is in reply to a previous message.
 type ReplyTo struct {
-	PeerChannel *peer_channels.PeerChannel `bsor:"1" json:"peer_channel"`
+	PeerChannel *peer_channels.Channel `bsor:"1" json:"peer_channel"`
 }
 
 func (*ReplyTo) IsWrapperType() {}

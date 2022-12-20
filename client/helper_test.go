@@ -104,8 +104,11 @@ func MockClient(ctx context.Context, store storage.StreamReadWriter, protocols *
 	}
 
 	client := NewClient(key, store, protocols, nil, peerChannelsFactory)
-	client.SetPeerChannelsURL(peer_channels.MockClientURL)
-	client.SetPeerChannelsAccount(*accountID, *accountToken)
+	account, err := peer_channels.NewAccount(peer_channels.MockClientURL, *accountID, *accountToken)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create peer channels account"))
+	}
+	client.SetPeerChannelsAccount(*account)
 	return client
 }
 

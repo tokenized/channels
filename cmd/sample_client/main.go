@@ -12,10 +12,8 @@ import (
 
 	"github.com/tokenized/channels"
 	"github.com/tokenized/channels/client"
-	channelsClient "github.com/tokenized/channels/client"
 	"github.com/tokenized/channels/cmd/sample_client/sample_client"
 	"github.com/tokenized/channels/invoices"
-	"github.com/tokenized/channels/relationships"
 	"github.com/tokenized/channels/wallet"
 	"github.com/tokenized/config"
 	"github.com/tokenized/logger"
@@ -313,56 +311,56 @@ func mark(ctx context.Context, client *sample_client.Client, args ...string) {
 }
 
 func establish(ctx context.Context, client *sample_client.Client, args ...string) {
-	if len(args) != 1 {
-		fmt.Printf("Missing channel URL argument : channels_sample establish <channel_url>\n")
-		return
-	}
-	channelURL := args[0]
-	baseURL, channelID, err := peer_channels.ParseChannelURL(channelURL)
-	if err != nil {
-		fmt.Printf("Invalid channel URL : %s", err)
-		return
-	}
+	fmt.Printf("Not Implemented")
+	// if len(args) != 1 {
+	// 	fmt.Printf("Missing channel URL argument : channels_sample establish <account_url>\n")
+	// 	return
+	// }
+	// account, err := peer_channels.ParseAccount(args[0])
+	// if err != nil {
+	// 	fmt.Printf("Invalid channel URL : %s", err)
+	// 	return
+	// }
 
-	client.ChannelsClient.SetPeerChannelsURL(baseURL)
-	channel, err := client.ChannelsClient.CreateInitialServiceChannel(ctx, wallet.RandomHash())
-	if err != nil {
-		fmt.Printf("Failed to create service channel : %s\n", err)
-		return
-	}
+	// client.ChannelsClient.SetPeerChannelsAccount(*account)
+	// channel, err := client.ChannelsClient.CreateInitialServiceChannel(ctx, wallet.RandomHash())
+	// if err != nil {
+	// 	fmt.Printf("Failed to create service channel : %s\n", err)
+	// 	return
+	// }
 
-	fmt.Printf("Created channel : %s\n", channel.Hash())
-	fmt.Printf("  Public Key : %s\n", channel.Key().PublicKey().String())
+	// fmt.Printf("Created channel : %s\n", channel.Hash())
+	// fmt.Printf("  Public Key : %s\n", channel.Key().PublicKey().String())
 
-	serviceChannels := channels.PeerChannels{
-		{
-			BaseURL: baseURL,
-			ID:      channelID,
-		},
-	}
+	// serviceChannels := channels.PeerChannels{
+	// 	{
+	// 		BaseURL: account.BaseURL,
+	// 		ID:      channelID,
+	// 	},
+	// }
 
-	if err := channel.SetOutgoingPeerChannels(serviceChannels); err != nil {
-		fmt.Printf("Failed to set peer channel : %s\n", err)
-		return
-	}
+	// if err := channel.SetOutgoingPeerChannels(serviceChannels); err != nil {
+	// 	fmt.Printf("Failed to set peer channel : %s\n", err)
+	// 	return
+	// }
 
-	userName := "UserName"
-	userIdentity := relationships.Identity{
-		Name: &userName,
-	}
+	// userName := "UserName"
+	// userIdentity := relationships.Identity{
+	// 	Name: &userName,
+	// }
 
-	initiation := &relationships.Initiation{
-		Configuration: relationships.ChannelConfiguration{
-			PublicKey:          channel.Key().PublicKey(),
-			SupportedProtocols: channelsClient.SupportedProtocols(),
-		},
-		Identity: userIdentity,
-	}
+	// initiation := &relationships.Initiation{
+	// 	Configuration: relationships.ChannelConfiguration{
+	// 		PublicKey:          channel.Key().PublicKey(),
+	// 		SupportedProtocols: channelsClient.SupportedProtocols(),
+	// 	},
+	// 	Identity: userIdentity,
+	// }
 
-	if _, err := channel.SendMessage(ctx, initiation, nil); err != nil {
-		fmt.Printf("Failed to send initiation message : %s\n", err)
-		return
-	}
+	// if _, err := channel.SendMessage(ctx, initiation, nil); err != nil {
+	// 	fmt.Printf("Failed to send initiation message : %s\n", err)
+	// 	return
+	// }
 }
 
 func receive(ctx context.Context, client *sample_client.Client,
