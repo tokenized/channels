@@ -92,7 +92,7 @@ func (*Protocol) ProtocolID() envelope.ProtocolID {
 	return ProtocolID
 }
 
-func (*Protocol) Parse(payload envelope.Data) (channels.Message, error) {
+func (*Protocol) Parse(payload envelope.Data) (channels.Message, envelope.Data, error) {
 	return Parse(payload)
 }
 
@@ -450,47 +450,53 @@ type InvoiceItem struct {
 
 type InvoiceItems []*InvoiceItem
 
-func Parse(payload envelope.Data) (channels.Message, error) {
+func Parse(payload envelope.Data) (channels.Message, envelope.Data, error) {
 	if len(payload.ProtocolIDs) == 0 {
-		return nil, nil
+		return nil, payload, nil
 	}
 
 	if !bytes.Equal(payload.ProtocolIDs[0], ProtocolID) {
-		return nil, nil
+		return nil, payload, nil
 	}
 
 	if len(payload.ProtocolIDs) != 1 {
-		return nil, errors.Wrapf(channels.ErrInvalidMessage, "invoices can't wrap")
+		return nil, envelope.Data{}, errors.Wrapf(channels.ErrInvalidMessage, "invoices can't wrap")
 	}
 
+	payload.ProtocolIDs = payload.ProtocolIDs[1:]
+
 	if len(payload.Payload) == 0 {
-		return nil, errors.Wrapf(channels.ErrInvalidMessage, "payload empty")
+		return nil, payload, errors.Wrapf(channels.ErrInvalidMessage, "payload empty")
 	}
 
 	version, err := bitcoin.ScriptNumberValue(payload.Payload[0])
 	if err != nil {
-		return nil, errors.Wrap(err, "version")
+		return nil, payload, errors.Wrap(err, "version")
 	}
 	if version != 0 {
-		return nil, errors.Wrap(channels.ErrUnsupportedVersion, fmt.Sprintf("invoices %d", version))
+		return nil, payload, errors.Wrap(channels.ErrUnsupportedVersion,
+			fmt.Sprintf("invoices %d", version))
 	}
 
 	messageType, err := bitcoin.ScriptNumberValue(payload.Payload[1])
 	if err != nil {
-		return nil, errors.Wrap(err, "message type")
+		return nil, payload, errors.Wrap(err, "message type")
 	}
 
 	result := MessageForType(MessageType(messageType))
 	if result == nil {
-		return nil, errors.Wrap(ErrUnsupportedInvoicesMessage,
+		return nil, payload, errors.Wrap(ErrUnsupportedInvoicesMessage,
 			fmt.Sprintf("%d", MessageType(messageType)))
 	}
 
-	if _, err := bsor.Unmarshal(payload.Payload[2:], result); err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
+	payloads, err := bsor.Unmarshal(payload.Payload[2:], result)
+	if err != nil {
+		return nil, payload, errors.Wrap(err, "unmarshal")
 	}
 
-	return result, nil
+	payload.Payload = payloads
+
+	return result, payload, nil
 }
 
 // Extract finds the Invoice message embedded in the tx.
@@ -506,7 +512,7 @@ func Extract(tx *wire.MsgTx) (*Invoice, error) {
 			continue
 		}
 
-		msg, err := Parse(payload)
+		msg, _, err := Parse(payload)
 		if err != nil {
 			continue
 		}

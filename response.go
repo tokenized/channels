@@ -58,9 +58,26 @@ var (
 
 type Status uint32
 
+type ResponseProtocol struct{}
+
+func NewResponseProtocol() *ResponseProtocol {
+	return &ResponseProtocol{}
+}
+
+func (*ResponseProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDResponse
+}
+
+func (*ResponseProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseResponse(payload)
+}
+
+func (*ResponseProtocol) ResponseCodeToString(code uint32) string {
+	return ResponseStatusToString(code)
+}
+
 // Response is used to identify that a message is in response to a previous message.
 type Response struct {
-	MessageID      *uint64             `bsor:"1" json:"message_id"`
 	Status         Status              `bsor:"2" json:"status,omitempty"`
 	CodeProtocolID envelope.ProtocolID `bsor:"3" json:"protocol_id,omitempty"`
 	Code           uint32              `bsor:"4" json:"code,omitempty"` // Protocol specific codes
@@ -78,16 +95,6 @@ func (*Response) IsWrapperType() {}
 
 func (*Response) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDResponse
-}
-
-// WrapResponseID wraps the payload with the response containing just the specified id and returns
-// the new payload containing the response.
-func WrapResponseID(payload envelope.Data, responseID uint64) (envelope.Data, error) {
-	response := &Response{
-		MessageID: &responseID,
-	}
-
-	return response.Wrap(payload)
 }
 
 func (r *Response) Write() (envelope.Data, error) {

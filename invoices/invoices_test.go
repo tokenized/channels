@@ -91,7 +91,7 @@ func Test_Invoices_Menu(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := Parse(signedPayload)
+	readMsg, _, err := Parse(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read invoice : %s", err)
 	}
@@ -213,7 +213,7 @@ func Test_Invoices_Invoice(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := Parse(signedPayload)
+	readMsg, _, err := Parse(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read invoice : %s", err)
 	}

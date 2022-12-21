@@ -14,3 +14,5 @@ require (
 	github.com/tokenized/spynode v0.2.2-0.20220902163745-06e7a19f49ee
 	github.com/tokenized/threads v0.1.1-0.20220902155404-d844f8ac41b5
 )
+
+replace github.com/tokenized/envelope => ../envelope

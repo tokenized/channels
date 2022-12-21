@@ -23,6 +23,24 @@ var (
 
 type UUID uuid.UUID
 
+type UUIDProtocol struct{}
+
+func NewUUIDProtocol() *UUIDProtocol {
+	return &UUIDProtocol{}
+}
+
+func (*UUIDProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDUUID
+}
+
+func (*UUIDProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseUUID(payload)
+}
+
+func (*UUIDProtocol) ResponseCodeToString(code uint32) string {
+	return SignedResponseCodeToString(code)
+}
+
 func (*UUID) IsWrapperType() {}
 
 func (*UUID) ProtocolID() envelope.ProtocolID {
@@ -58,7 +76,7 @@ func (m *UUID) Wrap(payload envelope.Data) (envelope.Data, error) {
 	return payload, nil
 }
 
-func ParseUUID(payload envelope.Data) (*uuid.UUID, envelope.Data, error) {
+func ParseUUID(payload envelope.Data) (*UUID, envelope.Data, error) {
 	if len(payload.ProtocolIDs) == 0 || !bytes.Equal(payload.ProtocolIDs[0], ProtocolIDUUID) {
 		return nil, payload, nil
 	}
@@ -81,7 +99,7 @@ func ParseUUID(payload envelope.Data) (*uuid.UUID, envelope.Data, error) {
 		return nil, payload, errors.Wrap(ErrInvalidUUID, "not push data")
 	}
 
-	var result uuid.UUID
+	var result UUID
 	if len(payload.Payload[1].Data) != len(result[:]) {
 		return nil, payload, errors.Wrapf(ErrInvalidUUID, "wrong size: %d",
 			len(payload.Payload[1].Data))

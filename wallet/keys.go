@@ -235,6 +235,21 @@ func RandomHash() bitcoin.Hash32 {
 	return *result
 }
 
+func RandomHashPtr() *bitcoin.Hash32 {
+	hasher := sha256.New()
+
+	randomBytes := make([]byte, bitcoin.Hash32Size)
+	rand.Read(randomBytes)
+	hasher.Write(randomBytes)
+
+	timeBytes, _ := time.Now().MarshalBinary()
+	hasher.Write(timeBytes)
+
+	hash := sha256.Sum256(hasher.Sum(nil))
+	result, _ := bitcoin.NewHash32(hash[:])
+	return result
+}
+
 func (ks *KeySet) load(ctx context.Context, store storage.StreamStorage,
 	baseKey bitcoin.Key) error {
 

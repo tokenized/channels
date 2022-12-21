@@ -37,6 +37,24 @@ var (
 	ErrInvalidSignature = errors.New("Invalid Signature")
 )
 
+type SignedProtocol struct{}
+
+func NewSignedProtocol() *SignedProtocol {
+	return &SignedProtocol{}
+}
+
+func (*SignedProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDSignedMessages
+}
+
+func (*SignedProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseSigned(payload)
+}
+
+func (*SignedProtocol) ResponseCodeToString(code uint32) string {
+	return SignedResponseCodeToString(code)
+}
+
 // SignedMessage is a message signed by a key.
 // First push op is public key, or OP_FALSE if no key is provided.
 // Second push op is signature of remaining protocol ids and push ops.
@@ -44,7 +62,24 @@ type Signature struct {
 	Signature      bitcoin.Signature  `bsor:"1" json:"signature"`
 	PublicKey      *bitcoin.PublicKey `bsor:"2" json:"public_key"`
 	DerivationHash *bitcoin.Hash32    `bsor:"3" json:"derivation_hash"`
-	hash           *bitcoin.Hash32
+
+	key  *bitcoin.Key
+	hash *bitcoin.Hash32
+}
+
+func NewSignature(key bitcoin.Key, derivationHash *bitcoin.Hash32, includeKey bool) *Signature {
+	result := &Signature{
+		DerivationHash: derivationHash,
+		key:            &key,
+		hash:           derivationHash,
+	}
+
+	if includeKey {
+		pk := key.PublicKey()
+		result.PublicKey = &pk
+	}
+
+	return result
 }
 
 func (*Signature) ProtocolID() envelope.ProtocolID {
@@ -52,6 +87,12 @@ func (*Signature) ProtocolID() envelope.ProtocolID {
 }
 
 func (s *Signature) Wrap(payload envelope.Data) (envelope.Data, error) {
+	if s.key != nil {
+		if err := s.sign(payload); err != nil {
+			return payload, errors.Wrap(err, "sign")
+		}
+	}
+
 	// Version
 	scriptItems := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(SignedMessagesVersion))}
 
@@ -69,10 +110,56 @@ func (s *Signature) Wrap(payload envelope.Data) (envelope.Data, error) {
 	return payload, nil
 }
 
+func (s *Signature) sign(payload envelope.Data) error {
+	hasher := sha256.New()
+	for _, protocolID := range payload.ProtocolIDs {
+		hasher.Write(protocolID)
+	}
+
+	if err := payload.Payload.Write(hasher); err != nil {
+		return errors.Wrap(err, "script")
+	}
+
+	sigHash, err := bitcoin.NewHash32(hasher.Sum(nil))
+	if err != nil {
+		return errors.Wrap(err, "new hash")
+	}
+
+	var signature bitcoin.Signature
+	if s.DerivationHash != nil {
+		derivedKey, err := s.key.AddHash(*s.DerivationHash)
+		if err != nil {
+			return errors.Wrap(err, "derive key")
+		}
+
+		signature, err = derivedKey.Sign(*sigHash)
+		if err != nil {
+			return errors.Wrap(err, "sign")
+		}
+	} else {
+		signature, err = s.key.Sign(*sigHash)
+		if err != nil {
+			return errors.Wrap(err, "sign")
+		}
+	}
+
+	s.Signature = signature
+	return nil
+}
+
 // Sign adds the SignedMessage protocol to the provided bitcoin script with the signature of the
 // script and the key if specified.
 func Sign(payload envelope.Data, key bitcoin.Key, derivationHash *bitcoin.Hash32,
 	includeKey bool) (*Signature, error) {
+
+	result := &Signature{
+		DerivationHash: derivationHash,
+	}
+
+	if includeKey {
+		publicKey := key.PublicKey()
+		result.PublicKey = &publicKey
+	}
 
 	hasher := sha256.New()
 	for _, protocolID := range payload.ProtocolIDs {
@@ -106,17 +193,8 @@ func Sign(payload envelope.Data, key bitcoin.Key, derivationHash *bitcoin.Hash32
 		}
 	}
 
-	message := &Signature{
-		Signature:      signature,
-		DerivationHash: derivationHash,
-	}
-
-	if includeKey {
-		publicKey := key.PublicKey()
-		message.PublicKey = &publicKey
-	}
-
-	return message, nil
+	result.Signature = signature
+	return result, nil
 }
 
 // WrapSignature signs the payload and wraps the payload with the signature and returns the new
@@ -230,7 +308,7 @@ func (m Signature) Verify() error {
 	return nil
 }
 
-func SignedStatusToString(code uint32) string {
+func SignedResponseCodeToString(code uint32) string {
 	switch code {
 	case SignedStatusSignatureRequired:
 		return "signature_required"

@@ -18,6 +18,9 @@ var (
 	ErrUnsupportedVersion  = errors.New("Unsupported Version")
 	ErrUnsupportedProtocol = errors.New("Unsupported Protocol")
 	ErrNotSupported        = errors.New("Not Supported")
+
+	ErrRemainingProtocols        = errors.New("Remaining Protocols")
+	ErrParseDidntConsumeProtocol = errors.New("Parse Didn't Consume Protocol")
 )
 
 // Message is implemented by all channels protocol message types. It is used to identify the
@@ -40,7 +43,7 @@ type Writer interface {
 // and payload.
 type Wrapper interface {
 	Message
-	Wrap(envelope.Data) (envelope.Data, error)
+	Wrap(payload envelope.Data) (envelope.Data, error)
 }
 
 type PeerChannel struct {
@@ -52,17 +55,9 @@ type PeerChannel struct {
 
 type PeerChannels []PeerChannel
 
-type WrappedMessage struct {
-	Signature *Signature
-	Response  *Response
-	ReplyTo   *ReplyTo
-	MessageID *MessageID
-	Message   Message
-}
-
 type Protocol interface {
 	ProtocolID() envelope.ProtocolID
-	Parse(payload envelope.Data) (Message, error)
+	Parse(payload envelope.Data) (Message, envelope.Data, error)
 	ResponseCodeToString(code uint32) string // convert Response.Code to a string
 }
 
@@ -121,154 +116,63 @@ func (ps *Protocols) ResponseCodeToString(protocolID envelope.ProtocolID, code u
 	return protocolID.String() + fmt.Sprintf(":unknown(%d)", code)
 }
 
-// Wrap wraps a message with a response id (if specified), adds the message id, signs it, and
-// serializes it.
-func Wrap(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID *uint64,
-	responseID *uint64) (bitcoin.Script, error) {
-
-	payload, err := msg.Write()
+func (ps *Protocols) Parse(script bitcoin.Script) (Message, []Wrapper, error) {
+	payload, err := envelopeV1.Parse(bytes.NewReader(script))
 	if err != nil {
-		return nil, errors.Wrap(err, "write")
+		return nil, nil, errors.Wrap(err, "envelope")
 	}
 
-	// Don't put two responses in the message.
-	if _, ok := msg.(*Response); !ok && responseID != nil {
-		payload, err = WrapResponseID(payload, *responseID)
-		if err != nil {
-			return nil, errors.Wrap(err, "response")
+	var wrappers []Wrapper
+	for {
+		protocol := ps.GetProtocol(payload.ProtocolIDs[0])
+		if protocol == nil {
+			return nil, nil, errors.Wrap(ErrUnsupportedProtocol, payload.ProtocolIDs[0].String())
 		}
-	}
 
-	if messageID != nil {
-		payload, err = WrapMessageID(payload, *messageID)
+		msg, newPayload, err := protocol.Parse(payload)
 		if err != nil {
-			return nil, errors.Wrap(err, "message id")
+			return nil, nil, errors.Wrapf(err, "parse: %s", protocol.ProtocolID())
 		}
-	}
 
-	payload, err = WrapSignature(payload, key, &hash, false)
-	if err != nil {
-		return nil, errors.Wrap(err, "sign")
-	}
+		if len(newPayload.ProtocolIDs) == 0 {
+			return msg, wrappers, nil
+		}
 
-	return envelopeV1.Wrap(payload).Script()
+		if wrapper, ok := msg.(Wrapper); ok {
+			wrappers = append(wrappers, wrapper)
+		} else {
+			return nil, nil, errors.Wrapf(ErrRemainingProtocols, "%s", newPayload.ProtocolIDs)
+		}
+
+		if len(payload.ProtocolIDs) == len(newPayload.ProtocolIDs) {
+			return nil, nil, errors.Wrapf(ErrParseDidntConsumeProtocol, "%s", newPayload.ProtocolIDs)
+		}
+
+		payload = newPayload
+	}
 }
 
-// WrapWithReplyTo wraps a message with a response id (if specified), adds the message id, signs it,
-// and serializes it.
-func WrapWithReplyTo(msg Writer, key bitcoin.Key, hash bitcoin.Hash32, messageID *uint64,
-	replyTo *ReplyTo, responseID *uint64, includeKey bool) (bitcoin.Script, error) {
+func Wrap(msg Writer, wrappers ...Wrapper) (bitcoin.Script, error) {
+	var payload envelope.Data
+	var err error
 
-	payload, err := msg.Write()
-	if err != nil {
-		return nil, errors.Wrap(err, "write")
-	}
-
-	// Don't put two responses in the message.
-	if _, ok := msg.(*Response); !ok && responseID != nil {
-		payload, err = WrapResponseID(payload, *responseID)
+	if msg != nil {
+		payload, err = msg.Write()
 		if err != nil {
-			return nil, errors.Wrap(err, "response")
+			return nil, errors.Wrap(err, "write")
 		}
 	}
 
-	if replyTo != nil {
-		payload, err = replyTo.Wrap(payload)
+	for _, wrapper := range wrappers {
+		if wrapper == nil {
+			continue
+		}
+
+		payload, err = wrapper.Wrap(payload)
 		if err != nil {
 			return nil, errors.Wrap(err, "reply to")
 		}
 	}
 
-	if messageID != nil {
-		payload, err = WrapMessageID(payload, *messageID)
-		if err != nil {
-			return nil, errors.Wrap(err, "message id")
-		}
-	}
-
-	payload, err = WrapSignature(payload, key, &hash, includeKey)
-	if err != nil {
-		return nil, errors.Wrap(err, "sign")
-	}
-
 	return envelopeV1.Wrap(payload).Script()
-}
-
-// WrapWithResponse wraps a message with the specified response, adds the message id, signs it, and
-// serializes it.
-func WrapWithResponse(msg Writer, response *Response, key bitcoin.Key, hash bitcoin.Hash32,
-	messageID *uint64) (bitcoin.Script, error) {
-
-	payload, err := msg.Write()
-	if err != nil {
-		return nil, errors.Wrap(err, "write")
-	}
-
-	payload, err = response.Wrap(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "response")
-	}
-
-	if messageID != nil {
-		payload, err = WrapMessageID(payload, *messageID)
-		if err != nil {
-			return nil, errors.Wrap(err, "message id")
-		}
-	}
-
-	payload, err = WrapSignature(payload, key, &hash, false)
-	if err != nil {
-		return nil, errors.Wrap(err, "sign")
-	}
-
-	return envelopeV1.Wrap(payload).Script()
-}
-
-func (ps *Protocols) Unwrap(script []byte) (*WrappedMessage, error) {
-	payload, err := envelopeV1.Parse(bytes.NewReader(script))
-	if err != nil {
-		return nil, errors.Wrap(err, "envelope")
-	}
-
-	result := &WrappedMessage{}
-	result.Signature, payload, err = ParseSigned(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "sign")
-	}
-
-	result.MessageID, payload, err = ParseMessageID(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "message id")
-	}
-
-	result.ReplyTo, payload, err = ParseReplyTo(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "reply to")
-	}
-
-	result.Response, payload, err = ParseResponse(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "response")
-	}
-
-	if len(payload.ProtocolIDs) == 0 {
-		return result, nil
-	}
-
-	if len(payload.ProtocolIDs) > 1 {
-		return nil, errors.Wrap(ErrNotSupported, "more than one data protocol")
-	}
-
-	protocol := ps.GetProtocol(payload.ProtocolIDs[0])
-	if protocol == nil {
-		return nil, errors.Wrap(ErrUnsupportedProtocol, payload.ProtocolIDs[0].String())
-	}
-
-	msg, err := protocol.Parse(payload)
-	if err != nil {
-		return nil, errors.Wrap(err, "parse")
-	}
-	result.Message = msg
-
-	return result, nil
 }

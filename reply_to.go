@@ -20,6 +20,24 @@ var (
 	ProtocolIDReplyTo = envelope.ProtocolID("RT") // Protocol ID for channel reply messages
 )
 
+type ReplyToProtocol struct{}
+
+func NewReplyToProtocol() *ReplyToProtocol {
+	return &ReplyToProtocol{}
+}
+
+func (*ReplyToProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDReplyTo
+}
+
+func (*ReplyToProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseReplyTo(payload)
+}
+
+func (*ReplyToProtocol) ResponseCodeToString(code uint32) string {
+	return ReplyToResponseCodeToString(code)
+}
+
 // ReplyTo is used to identify that a message is in reply to a previous message.
 type ReplyTo struct {
 	PeerChannel *peer_channels.Channel `bsor:"1" json:"peer_channel"`
@@ -83,16 +101,16 @@ func ParseReplyTo(payload envelope.Data) (*ReplyTo, envelope.Data, error) {
 	}
 
 	result := &ReplyTo{}
-	remainingPayload, err := bsor.Unmarshal(payload.Payload[1:], result)
+	payloads, err := bsor.Unmarshal(payload.Payload[1:], result)
 	if err != nil {
 		return nil, payload, errors.Wrap(err, "unmarshal")
 	}
-	payload.Payload = remainingPayload
+	payload.Payload = payloads
 
 	return result, payload, nil
 }
 
-func ReplyToStatusToString(code uint32) string {
+func ReplyToResponseCodeToString(code uint32) string {
 	switch code {
 	default:
 		return "parse_error"

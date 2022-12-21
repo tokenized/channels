@@ -101,7 +101,7 @@ func Test_PeerChannels_Create(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := Parse(signedPayload)
+	readMsg, _, err := Parse(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}
@@ -164,7 +164,7 @@ func Test_PeerChannels_Delete(t *testing.T) {
 		t.Logf("Verified signed message")
 	}
 
-	readMsg, err := Parse(signedPayload)
+	readMsg, _, err := Parse(signedPayload)
 	if err != nil {
 		t.Fatalf("Failed to read peer channels : %s", err)
 	}

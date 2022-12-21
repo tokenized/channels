@@ -20,6 +20,24 @@ var (
 	ErrInvalidMessageID = errors.New("Invalid MessageID")
 )
 
+type MessageIDProtocol struct{}
+
+func NewMessageIDProtocol() *MessageIDProtocol {
+	return &MessageIDProtocol{}
+}
+
+func (*MessageIDProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDMessageID
+}
+
+func (*MessageIDProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseMessageID(payload)
+}
+
+func (*MessageIDProtocol) ResponseCodeToString(code uint32) string {
+	return "parse"
+}
+
 type MessageID struct {
 	MessageID uint64 `bsor:"-" json:"message_id"`
 }

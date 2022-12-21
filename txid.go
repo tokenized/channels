@@ -20,6 +20,24 @@ var (
 	ErrInvalidTxID = errors.New("Invalid TxID")
 )
 
+type TxIDProtocol struct{}
+
+func NewTxIDProtocol() *TxIDProtocol {
+	return &TxIDProtocol{}
+}
+
+func (*TxIDProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDTxID
+}
+
+func (*TxIDProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseTxID(payload)
+}
+
+func (*TxIDProtocol) ResponseCodeToString(code uint32) string {
+	return "parse"
+}
+
 type TxID bitcoin.Hash32
 
 func (*TxID) IsWrapperType() {}
@@ -57,7 +75,7 @@ func (m *TxID) Wrap(payload envelope.Data) (envelope.Data, error) {
 	return payload, nil
 }
 
-func ParseTxID(payload envelope.Data) (*bitcoin.Hash32, envelope.Data, error) {
+func ParseTxID(payload envelope.Data) (*TxID, envelope.Data, error) {
 	if len(payload.ProtocolIDs) == 0 || !bytes.Equal(payload.ProtocolIDs[0], ProtocolIDTxID) {
 		return nil, payload, nil
 	}
@@ -80,7 +98,7 @@ func ParseTxID(payload envelope.Data) (*bitcoin.Hash32, envelope.Data, error) {
 		return nil, payload, errors.Wrap(ErrInvalidTxID, "not push data")
 	}
 
-	var result bitcoin.Hash32
+	var result TxID
 	if len(payload.Payload[1].Data) != len(result[:]) {
 		return nil, payload, errors.Wrapf(ErrInvalidTxID, "wrong size: %d",
 			len(payload.Payload[1].Data))
