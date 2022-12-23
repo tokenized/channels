@@ -24,6 +24,15 @@ var (
 	MessageTypeSignTx      = MessageType(3)
 	MessageTypeSignedTx    = MessageType(4)
 
+	// ResponseCodeMissingAdminInput means the tx to sign does not yet have an administrator input.
+	ResponseCodeMissingAdminInput = uint32(1)
+
+	// ResponseCodeMissingContractOutput means the tx to sign does not yet have a contract output.
+	ResponseCodeMissingContractOutput = uint32(2)
+
+	// ResponseCodeContractOfferInvalid means the contract offer in the tx to sign is invalid.
+	ResponseCodeContractOfferInvalid = uint32(3)
+
 	ErrUnsupportedVersion                 = errors.New("Unsupported Operator Version")
 	ErrUnsupportedContractOperatorMessage = errors.New("Unsupported Operator Message")
 )
@@ -49,7 +58,16 @@ func (*Protocol) ResponseCodeToString(code uint32) string {
 }
 
 func ResponseCodeToString(code uint32) string {
-	return "unknown" // no response codes defined
+	switch code {
+	case ResponseCodeMissingAdminInput:
+		return "missing_admin_input"
+	case ResponseCodeMissingContractOutput:
+		return "missing_contract_output"
+	case ResponseCodeContractOfferInvalid:
+		return "contract_offer_invalid"
+	default:
+		return "parse_error"
+	}
 }
 
 type CreateAgent struct{}
@@ -97,6 +115,7 @@ func (m *Agent) Write() (envelope.Data, error) {
 }
 
 type SignTx struct {
+	Tx *expanded_tx.ExpandedTx `bsor:"1" json:"locking_script"`
 }
 
 func (*SignTx) ProtocolID() envelope.ProtocolID {
