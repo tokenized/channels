@@ -70,7 +70,9 @@ func ResponseCodeToString(code uint32) string {
 	}
 }
 
-type CreateAgent struct{}
+type CreateAgent struct {
+	AdminLockingScript bitcoin.Script `bsor:"1" json:"admin_locking_script"`
+}
 
 func (*CreateAgent) ProtocolID() envelope.ProtocolID {
 	return ProtocolID
@@ -82,6 +84,13 @@ func (m *CreateAgent) Write() (envelope.Data, error) {
 
 	// Message type
 	payload = append(payload, bitcoin.PushNumberScriptItem(int64(MessageTypeCreateAgent)))
+
+	// Message
+	msgScriptItems, err := bsor.Marshal(m)
+	if err != nil {
+		return envelope.Data{}, errors.Wrap(err, "marshal")
+	}
+	payload = append(payload, msgScriptItems...)
 
 	return envelope.Data{envelope.ProtocolIDs{ProtocolID}, payload}, nil
 }
