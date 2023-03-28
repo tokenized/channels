@@ -214,6 +214,21 @@ func RandomHash() bitcoin.Hash32 {
 	return *result
 }
 
+func RandomHashPtr() *bitcoin.Hash32 {
+	hasher := sha256.New()
+
+	randomBytes := make([]byte, bitcoin.Hash32Size)
+	rand.Read(randomBytes)
+	hasher.Write(randomBytes)
+
+	timeBytes, _ := time.Now().MarshalBinary()
+	hasher.Write(timeBytes)
+
+	hash := sha256.Sum256(hasher.Sum(nil))
+	result, _ := bitcoin.NewHash32(hash[:])
+	return result
+}
+
 // WrapSignature signs the payload and wraps the payload with the signature and returns the new
 // payload containing the signature.
 func WrapSignature(payload envelope.Data, key bitcoin.Key, derivationHash *bitcoin.Hash32,
