@@ -126,7 +126,8 @@ func (ps *Protocols) Parse(script bitcoin.Script) (Message, []Wrapper, error) {
 	for {
 		protocol := ps.GetProtocol(payload.ProtocolIDs[0])
 		if protocol == nil {
-			return nil, nil, errors.Wrap(ErrUnsupportedProtocol, payload.ProtocolIDs[0].String())
+			return nil, wrappers, errors.Wrap(ErrUnsupportedProtocol,
+				payload.ProtocolIDs[0].String())
 		}
 
 		msg, newPayload, err := protocol.Parse(payload)
