@@ -24,7 +24,7 @@ var (
 // UUID and will ignore any further responses.
 type Handler struct {
 	handlers  map[string]map[uuid.UUID]*messageHandler
-	addUpdate peer_channels_listener.AddUpdate[*messageHandler]
+	addUpdate peer_channels_listener.AddUpdate
 }
 
 type messageHandler struct {
@@ -39,7 +39,7 @@ func NewHandler() *Handler {
 	}
 }
 
-func (h *Handler) SetAddUpdate(addUpdate peer_channels_listener.AddUpdate[*messageHandler]) {
+func (h *Handler) SetAddUpdate(addUpdate peer_channels_listener.AddUpdate) {
 	h.addUpdate = addUpdate
 }
 
@@ -115,7 +115,9 @@ func (h *Handler) HandleMessage(ctx context.Context, msg peer_channels.Message) 
 	return nil
 }
 
-func (h *Handler) HandleUpdate(ctx context.Context, handler *messageHandler) error {
+func (h *Handler) HandleUpdate(ctx context.Context, update interface{}) error {
+	handler := update.(*messageHandler)
+
 	channelHandlers, exists := h.handlers[handler.channelID]
 	if !exists {
 		channelHandlers = make(map[uuid.UUID]*messageHandler)

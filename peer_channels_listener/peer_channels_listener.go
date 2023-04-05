@@ -22,40 +22,40 @@ type HandleMessage func(ctx context.Context, msg peer_channels.Message) error
 
 // HandleUpdate handles a struct that updates the state of a message handler. It updates it in the
 // same thread that is handling messages so there is no multi-thread locking required.
-type HandleUpdate[Update any] func(ctx context.Context, update Update) error
+type HandleUpdate func(ctx context.Context, update interface{}) error
 
 // AddUpdate adds an update struct to be handled in the same thread as the message handler. This
 // function interface can be used by the message handler so that there isn't a circular dependency
 // between the message handler and the listener.
-type AddUpdate[Update any] func(update Update)
+type AddUpdate func(update interface{})
 
-type PeerChannelsListener[Update any] struct {
+type PeerChannelsListener struct {
 	peerChannelsClient peer_channels.Client
 	readToken          string
 	handleMessage      HandleMessage
-	handleUpdate       HandleUpdate[Update]
+	handleUpdate       HandleUpdate
 	messagesChannel    chan peer_channels.Message
-	updatesChannel     chan Update
+	updatesChannel     chan interface{}
 }
 
-func NewPeerChannelsListener[Update any](peerChannelsClient peer_channels.Client, readToken string,
+func NewPeerChannelsListener(peerChannelsClient peer_channels.Client, readToken string,
 	channelSize int, handleMessage HandleMessage,
-	handleUpdate HandleUpdate[Update]) *PeerChannelsListener[Update] {
-	return &PeerChannelsListener[Update]{
+	handleUpdate HandleUpdate) *PeerChannelsListener {
+	return &PeerChannelsListener{
 		peerChannelsClient: peerChannelsClient,
 		readToken:          readToken,
 		handleMessage:      handleMessage,
 		handleUpdate:       handleUpdate,
 		messagesChannel:    make(chan peer_channels.Message, channelSize),
-		updatesChannel:     make(chan Update, channelSize),
+		updatesChannel:     make(chan interface{}, channelSize),
 	}
 }
 
-func (l *PeerChannelsListener[Update]) AddUpdate(update Update) {
+func (l *PeerChannelsListener) AddUpdate(update interface{}) {
 	l.updatesChannel <- update
 }
 
-func (l *PeerChannelsListener[Update]) Run(ctx context.Context,
+func (l *PeerChannelsListener) Run(ctx context.Context,
 	interrupt <-chan interface{}) error {
 	var wait sync.WaitGroup
 
@@ -81,8 +81,7 @@ func (l *PeerChannelsListener[Update]) Run(ctx context.Context,
 	return threads.CombineErrors(listenThread.Error(), handleThread.Error())
 }
 
-func (l *PeerChannelsListener[Update]) listen(ctx context.Context,
-	interrupt <-chan interface{}) error {
+func (l *PeerChannelsListener) listen(ctx context.Context, interrupt <-chan interface{}) error {
 	for {
 		logger.Info(ctx, "Connecting to peer channel service to listen for UUID messages")
 
@@ -106,7 +105,7 @@ func (l *PeerChannelsListener[Update]) listen(ctx context.Context,
 	}
 }
 
-func (l *PeerChannelsListener[Update]) handle(ctx context.Context,
+func (l *PeerChannelsListener) handle(ctx context.Context,
 	interrupt <-chan interface{}) error {
 	for {
 		select {
