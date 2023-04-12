@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"github.com/tokenized/pkg/expanded_tx"
-	"github.com/tokenized/specification/dist/golang/actions"
-	"github.com/tokenized/specification/dist/golang/protocol"
 
 	"github.com/pkg/errors"
 )
@@ -40,25 +38,25 @@ func TxIsSigned(tx expanded_tx.TransactionWithOutputs) bool {
 	return true
 }
 
-// TxAction will return the action of the tx. The action being anything other than a message where
-// it is only valid to have one per tx.
-func TxAction(tx expanded_tx.Transaction, isTest bool) actions.Action {
-	outputCount := tx.OutputCount()
-	for index := 0; index < outputCount; index++ {
-		output := tx.Output(index)
+// // TxAction will return the action of the tx. The action being anything other than a message where
+// // it is only valid to have one per tx.
+// func TxAction(tx expanded_tx.Transaction, isTest bool) actions.Action {
+// 	outputCount := tx.OutputCount()
+// 	for index := 0; index < outputCount; index++ {
+// 		output := tx.Output(index)
 
-		action, err := protocol.Deserialize(output.LockingScript, isTest)
-		if err != nil {
-			continue
-		}
+// 		action, err := protocol.Deserialize(output.LockingScript, isTest)
+// 		if err != nil {
+// 			continue
+// 		}
 
-		if action.Code() != actions.CodeMessage {
-			return action
-		}
-	}
+// 		if action.Code() != actions.CodeMessage {
+// 			return action
+// 		}
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // TxIsComplete returns true if sent quantities approximately match receive quantities. If there is
 // a Tokenized transfer then sender quantities must match receiver quantities.
@@ -87,7 +85,7 @@ func TxStatus(tx expanded_tx.TransactionWithOutputs, maxFeeRate float64,
 
 	outputValue := uint64(0)
 	outputCount := tx.OutputCount()
-	var transfer *actions.Transfer
+	// var transfer *actions.Transfer
 	if outputCount == 0 {
 		status |= StatusNeedsOutputs
 	} else {
@@ -95,17 +93,17 @@ func TxStatus(tx expanded_tx.TransactionWithOutputs, maxFeeRate float64,
 			output := tx.Output(index)
 			outputValue += output.Value
 
-			action, err := protocol.Deserialize(output.LockingScript, isTest)
-			if err != nil {
-				continue
-			}
+			// action, err := protocol.Deserialize(output.LockingScript, isTest)
+			// if err != nil {
+			// 	continue
+			// }
 
-			if tfr, ok := action.(*actions.Transfer); ok {
-				if transfer != nil {
-					return status, errors.New("More than one transfer")
-				}
-				transfer = tfr
-			}
+			// if tfr, ok := action.(*actions.Transfer); ok {
+			// 	if transfer != nil {
+			// 		return status, errors.New("More than one transfer")
+			// 	}
+			// 	transfer = tfr
+			// }
 		}
 	}
 
