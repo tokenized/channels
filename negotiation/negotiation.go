@@ -118,23 +118,23 @@ func TxStatus(tx expanded_tx.TransactionWithOutputs, maxFeeRate float64,
 		}
 	}
 
-	for _, instrumentTransfer := range transfer.Instruments {
-		senderQuantity := uint64(0)
-		for _, sender := range instrumentTransfer.InstrumentSenders {
-			senderQuantity += sender.Quantity
-		}
+	// for _, instrumentTransfer := range transfer.Instruments {
+	// 	senderQuantity := uint64(0)
+	// 	for _, sender := range instrumentTransfer.InstrumentSenders {
+	// 		senderQuantity += sender.Quantity
+	// 	}
 
-		receiverQuantity := uint64(0)
-		for _, receiver := range instrumentTransfer.InstrumentReceivers {
-			receiverQuantity += receiver.Quantity
-		}
+	// 	receiverQuantity := uint64(0)
+	// 	for _, receiver := range instrumentTransfer.InstrumentReceivers {
+	// 		receiverQuantity += receiver.Quantity
+	// 	}
 
-		if senderQuantity > receiverQuantity {
-			status |= StatusNeedsReceivers
-		} else if receiverQuantity > senderQuantity {
-			status |= StatusNeedsSenders
-		}
-	}
+	// 	if senderQuantity > receiverQuantity {
+	// 		status |= StatusNeedsReceivers
+	// 	} else if receiverQuantity > senderQuantity {
+	// 		status |= StatusNeedsSenders
+	// 	}
+	// }
 
 	return status, nil
 }
