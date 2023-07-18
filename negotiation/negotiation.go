@@ -5,7 +5,14 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/tokenized/channels"
+	channelsExpandedTx "github.com/tokenized/channels/expanded_tx"
+	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
+	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
+	"github.com/tokenized/pkg/bitcoin"
+	"github.com/tokenized/pkg/bsvalias"
 	"github.com/tokenized/pkg/expanded_tx"
+	"github.com/tokenized/pkg/fees"
 
 	"github.com/pkg/errors"
 )
@@ -20,7 +27,216 @@ const (
 	StatusNeedsSignedAndInputs = StatusNeedsSigned | StatusNeedsInputs
 )
 
+type Transaction struct {
+	// ThreadID is a unique "conversation" ID for the negotiation. Responses should include the same
+	// ID. UUIDs are recommended.
+	ThreadID *string `json:"thread_id,omitempty"`
+
+	// Fees specifies any requirements for fees when modifying the transaction.
+	Fees fees.FeeRequirements `json:"fees,omitempty"`
+
+	// ReplyTo is information on how to respond to the message.
+	ReplyTo *channels.ReplyTo `json:"reply_to,omitempty"`
+
+	// Note is optional text that is displayed to the user.
+	Note *string `json:"note,omitempty"`
+
+	// Expiry is the nanoseconds since the unix epoch until this transaction expires.
+	Expiry *channels.Time `json:"expiry,omitempty"`
+
+	// Timestamp is the nanoseconds since the unix epoch until when this transaction was created.
+	Timestamp *channels.Time `json:"timestamp,omitempty"`
+
+	// Tx is the current state of the negotiation. It will start as a partial transaction, likely
+	// missing inputs and/or outputs.
+	Tx *expanded_tx.ExpandedTx `json:"expanded_tx,omitempty"`
+}
+
 type Status uint8
+
+func ConvertFromBSVAlias(bntx *bsvalias.NegotiationTransaction) *Transaction {
+	result := &Transaction{
+		ThreadID: bntx.ThreadID,
+		Fees:     bntx.Fees,
+		Note:     bntx.Note,
+		Tx:       bntx.Tx,
+	}
+
+	if bntx.Timestamp != nil {
+		ts := channels.Time(*bntx.Timestamp)
+		result.Timestamp = &ts
+	}
+
+	if bntx.Expiry != nil {
+		e := channels.Time(*bntx.Expiry)
+		result.Expiry = &e
+	}
+
+	if bntx.ReplyTo != nil {
+		result.ReplyTo = &channels.ReplyTo{
+			Handle:      bntx.ReplyTo.Handle,
+			PeerChannel: bntx.ReplyTo.PeerChannel,
+		}
+	}
+
+	return result
+}
+
+func (tx *Transaction) ConvertToBSVAlias() *bsvalias.NegotiationTransaction {
+	result := &bsvalias.NegotiationTransaction{
+		ThreadID: tx.ThreadID,
+		Fees:     tx.Fees,
+		Note:     tx.Note,
+		Tx:       tx.Tx,
+	}
+
+	if tx.Timestamp != nil {
+		ts := uint64(*tx.Timestamp)
+		result.Timestamp = &ts
+	}
+
+	if tx.Expiry != nil {
+		e := uint64(*tx.Expiry)
+		result.Expiry = &e
+	}
+
+	if tx.ReplyTo != nil {
+		result.ReplyTo = &bsvalias.ReplyTo{
+			Handle:      tx.ReplyTo.Handle,
+			PeerChannel: tx.ReplyTo.PeerChannel,
+		}
+	}
+
+	return result
+}
+
+// CompileNegotiationTransaction extracts relevant values from a parsed script into the negotiation
+// transaction. It returns any unused wrappers.
+func CompileTransaction(message channels.Message,
+	wrappers []channels.Wrapper) (*Transaction, []channels.Wrapper, error) {
+
+	channelEtx, ok := message.(*channelsExpandedTx.ExpandedTxMessage)
+	if !ok {
+		return nil, nil, errors.New("Not Expanded Tx")
+	}
+
+	result := &Transaction{
+		Tx: channelEtx.GetTx(),
+	}
+
+	if result.Tx == nil {
+		return nil, nil, errors.New("Missing Tx")
+	}
+
+	var unusedWrappers []channels.Wrapper
+	for _, wrapper := range wrappers {
+		switch m := wrapper.(type) {
+		case *channels.StringID:
+			result.ThreadID = &m.StringID
+		case *channels.FeeRequirementsMessage:
+			result.Fees = m.GetFeeRequirements()
+		case *channels.ReplyTo:
+			result.ReplyTo = m
+		case *channels.Note:
+			result.Note = &m.Note
+		case *channels.TimeMessage:
+			t := m.GetTime()
+			result.Timestamp = &t
+		case *channels.ExpiryMessage:
+			t := m.GetExpiry()
+			result.Expiry = &t
+		default:
+			unusedWrappers = append(unusedWrappers, wrapper)
+		}
+	}
+
+	return result, unusedWrappers, nil
+}
+
+func (tx Transaction) Copy() Transaction {
+	result := Transaction{
+		Fees: tx.Fees.Copy(),
+	}
+
+	if tx.ThreadID != nil {
+		c := CopyString(*tx.ThreadID)
+		result.ThreadID = &c
+	}
+
+	if tx.ReplyTo != nil {
+		c := tx.ReplyTo.Copy()
+		result.ReplyTo = &c
+	}
+
+	if tx.Note != nil {
+		c := CopyString(*tx.Note)
+		result.Note = &c
+	}
+
+	if tx.Expiry != nil {
+		c := tx.Expiry.Copy()
+		result.Expiry = &c
+	}
+
+	if tx.Timestamp != nil {
+		c := tx.Timestamp.Copy()
+		result.Timestamp = &c
+	}
+
+	if tx.Tx != nil {
+		c := tx.Tx.Copy()
+		result.Tx = &c
+	}
+
+	return result
+}
+
+func CopyString(s string) string {
+	result := make([]byte, len(s))
+	copy(result, s)
+	return string(result)
+}
+
+func (m *Transaction) Write() (envelope.Data, error) {
+	cetx := channelsExpandedTx.NewExpandedTxMessage(m.Tx)
+
+	var wrappers []channels.Wrapper
+
+	if m.ThreadID != nil {
+		wrappers = append(wrappers, channels.NewStringID(*m.ThreadID))
+	}
+
+	if m.Fees != nil {
+		wrappers = append(wrappers, channels.NewFeeRequirementsMessage(m.Fees))
+	}
+
+	if m.ReplyTo != nil {
+		wrappers = append(wrappers, m.ReplyTo)
+	}
+
+	if m.Note != nil {
+		wrappers = append(wrappers, channels.NewNote(*m.Note))
+	}
+
+	if m.Expiry != nil {
+		wrappers = append(wrappers, channels.NewExpiryMessage(*m.Expiry))
+	}
+
+	if m.Timestamp != nil {
+		wrappers = append(wrappers, channels.NewTimeMessage(*m.Timestamp))
+	}
+
+	return channels.WrapEnvelope(cetx, wrappers...)
+}
+
+func (m *Transaction) Wrap() (bitcoin.Script, error) {
+	data, err := m.Write()
+	if err != nil {
+		return nil, errors.Wrap(err, "envelope")
+	}
+
+	return envelopeV1.Wrap(data).Script()
+}
 
 func TxIsSigned(tx expanded_tx.TransactionWithOutputs) bool {
 	inputCount := tx.InputCount()

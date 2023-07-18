@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
+	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -21,35 +23,89 @@ const (
 	PeriodTypeWeek        = PeriodType(5)
 	PeriodTypeMonth       = PeriodType(6)
 	PeriodTypeYear        = PeriodType(7)
+
+	TimeVersion = uint8(0)
+
+	TimeFormat = "2006-01-02 15:04:05.999999999 -0700 MST"
+)
+
+var (
+	ProtocolIDTime = envelope.ProtocolID("T") // Protocol ID for channel times
 )
 
 type PeriodType uint8
-type Timestamp uint64 // Seconds since UNIX epoch
-type Duration uint64  // Seconds
+type Time uint64     // Nanoseconds since UNIX epoch
+type Duration uint64 // Nanoseconds
 
 type Period struct {
 	Count uint64     `json:"count"`
 	Type  PeriodType `json:"type"`
 }
 
-func Now() Timestamp {
-	return Timestamp(time.Now().Unix())
+type TimeProtocol struct{}
+
+// TimeMessage is a channels protocol message that contains a time.
+type TimeMessage Time
+
+func Now() Time {
+	return Time(time.Now().UnixNano())
 }
 
-func ConvertToTimestamp(t time.Time) Timestamp {
-	return Timestamp(t.Unix())
+func ConvertToTime(t time.Time) Time {
+	return Time(t.UnixNano())
 }
 
-func (t *Timestamp) Add(d Duration) {
-	*t += Timestamp(d)
+func (t *Time) Add(d Duration) {
+	*t += Time(d)
 }
 
-func (t *Timestamp) Subtract(d Duration) {
-	*t -= Timestamp(d)
+func (t *Time) Subtract(d Duration) {
+	*t -= Time(d)
+}
+
+func (t Time) Copy() Time {
+	return t
 }
 
 func ConvertToDuration(d time.Duration) Duration {
-	return Duration(d.Seconds())
+	return Duration(d.Nanoseconds())
+}
+
+func (t *Time) UnmarshalJSON(data []byte) error {
+	v, err := strconv.ParseUint(string(data), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	*t = Time(v)
+	return nil
+}
+
+func (t Time) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.FormatUint(uint64(t), 10)), nil
+}
+
+func (t Time) MarshalText() ([]byte, error) {
+	return []byte(t.String()), nil
+}
+
+func (t *Time) UnmarshalText(text []byte) error {
+	return t.SetString(string(text))
+}
+
+func (t Time) String() string {
+	tm := time.Unix(0, int64(t))
+	return tm.Format(TimeFormat)
+}
+
+func (t *Time) SetString(text string) error {
+	tm, err := time.Parse(TimeFormat, text)
+	if err != nil {
+		return err
+	}
+
+	*t = Time(tm.UnixNano())
+	return nil
 }
 
 func (v *PeriodType) UnmarshalJSON(data []byte) error {
@@ -240,4 +296,99 @@ func (v *Period) UnmarshalBinary(data []byte) error {
 	}
 	v.Count = count
 	return nil
+}
+
+func NewTimeProtocol() *TimeProtocol {
+	return &TimeProtocol{}
+}
+
+func (*TimeProtocol) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDTime
+}
+
+func (*TimeProtocol) Parse(payload envelope.Data) (Message, envelope.Data, error) {
+	return ParseTime(payload)
+}
+
+func (*TimeProtocol) ResponseCodeToString(code uint32) string {
+	return TimeResponseCodeToString(code)
+}
+
+func (m *TimeMessage) GetTime() Time {
+	return Time(*m)
+}
+
+func NewTimeMessage(t Time) *TimeMessage {
+	cfr := TimeMessage(t)
+	return &cfr
+}
+
+func (*TimeMessage) IsWrapperType() {}
+
+func (*TimeMessage) ProtocolID() envelope.ProtocolID {
+	return ProtocolIDTime
+}
+
+func (r *TimeMessage) Write() (envelope.Data, error) {
+	// Version
+	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(TimeVersion))}
+
+	// Message
+	item := bitcoin.PushNumberScriptItemUnsigned(uint64(*r))
+	payload = append(payload, item)
+
+	return envelope.Data{envelope.ProtocolIDs{ProtocolIDTime}, payload}, nil
+}
+
+func (r *TimeMessage) Wrap(payload envelope.Data) (envelope.Data, error) {
+	// Version
+	scriptItems := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(TimeVersion))}
+
+	// Message
+	item := bitcoin.PushNumberScriptItemUnsigned(uint64(*r))
+	scriptItems = append(scriptItems, item)
+
+	payload.ProtocolIDs = append(envelope.ProtocolIDs{ProtocolIDTime}, payload.ProtocolIDs...)
+	payload.Payload = append(scriptItems, payload.Payload...)
+
+	return payload, nil
+}
+
+func ParseTime(payload envelope.Data) (*TimeMessage, envelope.Data, error) {
+	if len(payload.ProtocolIDs) == 0 ||
+		!bytes.Equal(payload.ProtocolIDs[0], ProtocolIDTime) {
+		return nil, payload, nil
+	}
+	payload.ProtocolIDs = payload.ProtocolIDs[1:]
+
+	if len(payload.Payload) < 2 {
+		return nil, payload, errors.Wrapf(ErrInvalidMessage,
+			"not enough fee requirements push ops: %d", len(payload.Payload))
+	}
+
+	version, err := bitcoin.ScriptNumberValue(payload.Payload[0])
+	if err != nil {
+		return nil, payload, errors.Wrap(err, "version")
+	}
+	if version != 0 {
+		return nil, payload, errors.Wrap(ErrUnsupportedVersion,
+			fmt.Sprintf("fee requirements: %d", version))
+	}
+
+	value, err := bitcoin.ScriptNumberValueUnsigned(payload.Payload[1])
+	if err != nil {
+		return nil, payload, errors.Wrap(err, "value")
+	}
+	result := TimeMessage(value)
+
+	payload.Payload = payload.Payload[2:]
+
+	return &result, payload, nil
+}
+
+func TimeResponseCodeToString(code uint32) string {
+	switch code {
+	default:
+		return "parse_error"
+	}
 }

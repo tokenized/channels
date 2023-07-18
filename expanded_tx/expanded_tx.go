@@ -58,6 +58,16 @@ func (*Protocol) ResponseCodeToString(code uint32) string {
 	return ResponseCodeToString(code)
 }
 
+func (m *ExpandedTxMessage) GetTx() *expanded_tx.ExpandedTx {
+	etx := expanded_tx.ExpandedTx(*m)
+	return &etx
+}
+
+func NewExpandedTxMessage(etx *expanded_tx.ExpandedTx) *ExpandedTxMessage {
+	cetx := ExpandedTxMessage(*etx)
+	return &cetx
+}
+
 func (*ExpandedTxMessage) ProtocolID() envelope.ProtocolID {
 	return ProtocolID
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/tokenized/pkg/bitcoin"
 	"github.com/tokenized/pkg/bsor"
 	"github.com/tokenized/pkg/expanded_tx"
+	"github.com/tokenized/pkg/fees"
 	"github.com/tokenized/pkg/wire"
 
 	"github.com/pkg/errors"
@@ -217,10 +218,10 @@ func (m *PurchaseOrder) Write() (envelope.Data, error) {
 // chain communication should include a signed TransferRequest message that contains the payment tx
 // which contains the Invoice.
 type Invoice struct {
-	Items      InvoiceItems       `bsor:"1" json:"items"`
-	Notes      *string            `bsor:"2" json:"notes,omitempty"`
-	Timestamp  channels.Timestamp `bsor:"3" json:"timestamp"`
-	Expiration channels.Timestamp `bsor:"4" json:"expiration"`
+	Items      InvoiceItems  `bsor:"1" json:"items"`
+	Notes      *string       `bsor:"2" json:"notes,omitempty"`
+	Timestamp  channels.Time `bsor:"3" json:"timestamp"`
+	Expiration channels.Time `bsor:"4" json:"expiration"`
 }
 
 func (*Invoice) ProtocolID() envelope.ProtocolID {
@@ -247,8 +248,8 @@ func (m *Invoice) Write() (envelope.Data, error) {
 // TransferRequest is an incomplete tx that includes an output containing the Invoice message and
 // transfers of requested tokens/bitcoin for the items contained in the invoice.
 type TransferRequest struct {
-	Tx   *expanded_tx.ExpandedTx  `bsor:"1" json:"tx"`
-	Fees channels.FeeRequirements `bsor:"2" json:"fees"` // tx fee requirements
+	Tx   *expanded_tx.ExpandedTx `bsor:"1" json:"tx"`
+	Fees fees.FeeRequirements    `bsor:"2" json:"fees"` // tx fee requirements
 }
 
 func (*TransferRequest) ProtocolID() envelope.ProtocolID {

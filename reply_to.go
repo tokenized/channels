@@ -40,7 +40,8 @@ func (*ReplyToProtocol) ResponseCodeToString(code uint32) string {
 
 // ReplyTo is used to identify that a message is in reply to a previous message.
 type ReplyTo struct {
-	PeerChannel *peer_channels.Channel `bsor:"1" json:"peer_channel"`
+	PeerChannel *peer_channels.Channel `bsor:"1" json:"peer_channel,omitempty"`
+	Handle      *string                `bsor:"2" json:"handle,omitempty"`
 }
 
 func (*ReplyTo) IsWrapperType() {}
@@ -78,6 +79,28 @@ func (r *ReplyTo) Wrap(payload envelope.Data) (envelope.Data, error) {
 	payload.Payload = append(scriptItems, payload.Payload...)
 
 	return payload, nil
+}
+
+func (r ReplyTo) Copy() ReplyTo {
+	result := ReplyTo{}
+
+	if r.PeerChannel != nil {
+		c := r.PeerChannel.Copy()
+		result.PeerChannel = &c
+	}
+
+	if r.Handle != nil {
+		c := CopyString(*r.Handle)
+		result.Handle = &c
+	}
+
+	return result
+}
+
+func CopyString(s string) string {
+	result := make([]byte, len(s))
+	copy(result, s)
+	return string(result)
 }
 
 func ParseReplyTo(payload envelope.Data) (*ReplyTo, envelope.Data, error) {

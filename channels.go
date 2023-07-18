@@ -153,14 +153,14 @@ func (ps *Protocols) Parse(script bitcoin.Script) (Message, []Wrapper, error) {
 	}
 }
 
-func Wrap(msg Writer, wrappers ...Wrapper) (bitcoin.Script, error) {
+func WrapEnvelope(msg Writer, wrappers ...Wrapper) (envelope.Data, error) {
 	var payload envelope.Data
 	var err error
 
 	if msg != nil {
 		payload, err = msg.Write()
 		if err != nil {
-			return nil, errors.Wrap(err, "write")
+			return payload, errors.Wrap(err, "write")
 		}
 	}
 
@@ -171,9 +171,18 @@ func Wrap(msg Writer, wrappers ...Wrapper) (bitcoin.Script, error) {
 
 		payload, err = wrapper.Wrap(payload)
 		if err != nil {
-			return nil, errors.Wrap(err, "reply to")
+			return payload, errors.Wrap(err, "reply to")
 		}
 	}
 
-	return envelopeV1.Wrap(payload).Script()
+	return payload, nil
+}
+
+func Wrap(msg Writer, wrappers ...Wrapper) (bitcoin.Script, error) {
+	data, err := WrapEnvelope(msg, wrappers...)
+	if err != nil {
+		return nil, errors.Wrap(err, "envelope")
+	}
+
+	return envelopeV1.Wrap(data).Script()
 }
