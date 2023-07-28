@@ -44,6 +44,18 @@ type ReplyTo struct {
 	Handle      *string                `bsor:"2" json:"handle,omitempty"`
 }
 
+func (r ReplyTo) String() string {
+	if r.Handle != nil {
+		return fmt.Sprintf("handle:%s", *r.Handle)
+	}
+
+	if r.PeerChannel != nil {
+		return fmt.Sprintf("peer_channel:%s", r.PeerChannel.MaskedString())
+	}
+
+	return ""
+}
+
 func (*ReplyTo) IsWrapperType() {}
 
 func (*ReplyTo) ProtocolID() envelope.ProtocolID {

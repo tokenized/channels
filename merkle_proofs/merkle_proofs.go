@@ -44,11 +44,11 @@ type MerkleProof struct {
 	MerkleProof *merkle_proof.MerkleProof `bsor:"1" json:"merkle_proof"`
 }
 
-func (*MerkleProof) ProtocolID() envelope.ProtocolID {
+func (MerkleProof) ProtocolID() envelope.ProtocolID {
 	return ProtocolID
 }
 
-func (m *MerkleProof) Write() (envelope.Data, error) {
+func (m MerkleProof) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(Version))}
 

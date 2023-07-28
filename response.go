@@ -97,6 +97,21 @@ func (*Response) ProtocolID() envelope.ProtocolID {
 	return ProtocolIDResponse
 }
 
+func (r Response) Copy() Response {
+	result := Response{
+		Status: r.Status,
+		Code:   r.Code,
+		Note:   r.Note,
+	}
+
+	if len(r.CodeProtocolID) > 0 {
+		result.CodeProtocolID = make(envelope.ProtocolID, len(r.CodeProtocolID))
+		copy(result.CodeProtocolID[:], r.CodeProtocolID)
+	}
+
+	return result
+}
+
 func (r *Response) Write() (envelope.Data, error) {
 	// Version
 	payload := bitcoin.ScriptItems{bitcoin.PushNumberScriptItem(int64(ResponseVersion))}

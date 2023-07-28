@@ -65,6 +65,8 @@ github.com/tokenized/logger v0.1.3/go.mod h1:bA5PfUEFwtUy0yEIIq4Q3ZwBk1kIZTkYIRA
 github.com/tokenized/pkg v0.6.0/go.mod h1:reIXdZflcfFbuX1RvX90yAjlYVJaUiYDc5CWJ6qCQww=
 github.com/tokenized/pkg v0.7.1-0.20230718153747-de722c521869 h1:iTb/tvtnsmmMjg25TwPZOH768Mdaf7TCtDHPmmHLjCg=
 github.com/tokenized/pkg v0.7.1-0.20230718153747-de722c521869/go.mod h1:c1xkP+9ON6kwoMQB9LMpy34YcqUwqNXjPMlltYTYZIc=
+github.com/tokenized/pkg v0.7.1-0.20230728163803-9a855fa7d049 h1:cNXsk+4QXccHleAiHCP+Zjh046bmJCXB0tkBNWdewzQ=
+github.com/tokenized/pkg v0.7.1-0.20230728163803-9a855fa7d049/go.mod h1:c1xkP+9ON6kwoMQB9LMpy34YcqUwqNXjPMlltYTYZIc=
 github.com/tokenized/threads v0.1.2 h1:olWOi2kZ4GLX4XmRbgHJzMbaTxp7CKMdiMbHJjKZaRQ=
 github.com/tokenized/threads v0.1.2/go.mod h1:+/44KAYA6wqU+AC743pLGBgzkD06IB9+piOOE8BkGK0=
 github.com/tyler-smith/go-bip32 v0.0.0-20170922074101-2c9cfd177564 h1:NXXyQVeRVLK8Xu27/hkkjwVOZLk5v4ZBEvvMtqMqznM=

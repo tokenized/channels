@@ -47,6 +47,8 @@ type Transaction struct {
 	// Timestamp is the nanoseconds since the unix epoch until when this transaction was created.
 	Timestamp *channels.Time `json:"timestamp,omitempty"`
 
+	Response *channels.Response `json:"response,omitempty"`
+
 	// Tx is the current state of the negotiation. It will start as a partial transaction, likely
 	// missing inputs and/or outputs.
 	Tx *expanded_tx.ExpandedTx `json:"expanded_tx,omitempty"`
@@ -79,6 +81,15 @@ func ConvertFromBSVAlias(bntx *bsvalias.NegotiationTransaction) *Transaction {
 		}
 	}
 
+	if bntx.Response != nil {
+		result.Response = &channels.Response{
+			Status:         channels.Status(bntx.Response.Status),
+			CodeProtocolID: envelope.ProtocolID(bntx.Response.CodeProtocolID),
+			Code:           bntx.Response.Code,
+			Note:           bntx.Response.Note,
+		}
+	}
+
 	return result
 }
 
@@ -104,6 +115,15 @@ func (tx *Transaction) ConvertToBSVAlias() *bsvalias.NegotiationTransaction {
 		result.ReplyTo = &bsvalias.ReplyTo{
 			Handle:      tx.ReplyTo.Handle,
 			PeerChannel: tx.ReplyTo.PeerChannel,
+		}
+	}
+
+	if tx.Response != nil {
+		result.Response = &bsvalias.Response{
+			Status:         bsvalias.Status(tx.Response.Status),
+			CodeProtocolID: bitcoin.Hex(tx.Response.CodeProtocolID),
+			Code:           tx.Response.Code,
+			Note:           tx.Response.Note,
 		}
 	}
 
@@ -137,6 +157,8 @@ func CompileTransaction(message channels.Message,
 			result.Fees = m.GetFeeRequirements()
 		case *channels.ReplyTo:
 			result.ReplyTo = m
+		case *channels.Response:
+			result.Response = m
 		case *channels.Note:
 			result.Note = &m.Note
 		case *channels.TimeMessage:
@@ -188,6 +210,11 @@ func (tx Transaction) Copy() Transaction {
 		result.Tx = &c
 	}
 
+	if tx.Response != nil {
+		c := tx.Response.Copy()
+		result.Response = &c
+	}
+
 	return result
 }
 
@@ -198,8 +225,6 @@ func CopyString(s string) string {
 }
 
 func (m *Transaction) Write() (envelope.Data, error) {
-	cetx := channelsExpandedTx.NewExpandedTxMessage(m.Tx)
-
 	var wrappers []channels.Wrapper
 
 	if m.ThreadID != nil {
@@ -226,7 +251,20 @@ func (m *Transaction) Write() (envelope.Data, error) {
 		wrappers = append(wrappers, channels.NewTimeMessage(*m.Timestamp))
 	}
 
-	return channels.WrapEnvelope(cetx, wrappers...)
+	if m.Tx != nil {
+		if m.Response != nil {
+			wrappers = append(wrappers, m.Response)
+		}
+
+		cetx := channelsExpandedTx.NewExpandedTxMessage(m.Tx)
+		return channels.WrapEnvelope(cetx, wrappers...)
+	}
+
+	if m.Response != nil {
+		return channels.WrapEnvelope(m.Response, wrappers...)
+	}
+
+	return envelope.Data{}, errors.New("Missing tx and response")
 }
 
 func (m *Transaction) Wrap() (bitcoin.Script, error) {
