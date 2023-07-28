@@ -135,17 +135,19 @@ func (tx *Transaction) ConvertToBSVAlias() *bsvalias.NegotiationTransaction {
 func CompileTransaction(message channels.Message,
 	wrappers []channels.Wrapper) (*Transaction, []channels.Wrapper, error) {
 
-	channelEtx, ok := message.(*channelsExpandedTx.ExpandedTxMessage)
-	if !ok {
-		return nil, nil, errors.New("Not Expanded Tx")
-	}
+	result := &Transaction{}
 
-	result := &Transaction{
-		Tx: channelEtx.GetTx(),
-	}
+	switch m := message.(type) {
+	case *channelsExpandedTx.ExpandedTxMessage:
+		result.Tx = m.GetTx()
 
-	if result.Tx == nil {
-		return nil, nil, errors.New("Missing Tx")
+		if result.Tx == nil {
+			return nil, nil, errors.New("Missing Tx")
+		}
+	case *channels.Response:
+		result.Response = m
+	default:
+		return nil, nil, errors.New("Not tx or response")
 	}
 
 	var unusedWrappers []channels.Wrapper
