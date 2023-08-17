@@ -1,0 +1,21 @@
+version 0
+
+Signature {
+  1 Signature      binary
+  2 PublicKey      *binary(33)
+  3 DerivationHash *binary(32)
+}
+
+ReplyTo {
+  1 PeerChannel *binary
+  2 Handle      *string
+}
+
+Response {
+  2 Status         uint32
+  3 CodeProtocolID binary
+  4 Code           uint32
+  5 Note           string
+}
+
+
