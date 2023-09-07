@@ -7,6 +7,7 @@ import (
 
 	"github.com/tokenized/channels"
 	channelsExpandedTx "github.com/tokenized/channels/expanded_tx"
+	"github.com/tokenized/envelope/pkg/golang/envelope/base"
 	envelope "github.com/tokenized/envelope/pkg/golang/envelope/base"
 	envelopeV1 "github.com/tokenized/envelope/pkg/golang/envelope/v1"
 	"github.com/tokenized/pkg/bitcoin"
@@ -52,6 +53,54 @@ type Transaction struct {
 	// Tx is the current state of the negotiation. It will start as a partial transaction, likely
 	// missing inputs and/or outputs.
 	Tx *expanded_tx.ExpandedTx `json:"expanded_tx,omitempty"`
+}
+
+type Capabilities struct {
+	Protocols base.ProtocolIDs `bsor:"1" json:"protocols"`
+	Options   Options          `bsor:"2" json:"options"`
+}
+
+type Options struct {
+	// SendDisabled means that simple send requests are not supported. They are assumed to be
+	// supported by default.
+	//   1. Initiator - Send request describing which instruments the initiator wants to send.
+	//   2. Counterparty - Provide receiving data. This can be an immediate response by an agent.
+	//   3. Initiator - Complete and sign tx.
+	SendDisabled bool `bsor:"1" json:"send_disbled,omitempty"`
+
+	// AutoSendResponse is true when a request to send will be responded to immediately without
+	// waiting for user approval. This provides receiving locking scripts from the recipient.
+	AutoSendResponse bool `bsor:"2" json:"auto_send_response,omitempty"`
+
+	// Receive means that simple receive requests are supported. Privacy can be retained if the
+	// initiator request has zeroized input hashes and indexes.
+	//   1. Initiator - Send request describing which instruments they want to receive.
+	//   2. Counterparty - Counterparty completes the tx with sending inputs and signs tx.
+	Receive bool `bsor:"3" json:"receive,omitempty"`
+
+	// ThreeStepExchange is true when the implementation supports 3 step exchanges.
+	//   1. Initiator - Send request describing which instruments to exchange.
+	//   2. Counterparty - Complete and sign tx.
+	//   3. Initiator - Sign tx.
+	ThreeStepExchange bool `bsor:"4" json:"three_step_exchange,omitempty"`
+
+	// FourStepExchange is true when the implementation supports 4 step exchanges which seem like 2
+	// step exchanges from the UX perspective if the second step is automated by an agent. If the
+	// initiator gets an immediate unsigned response from the counterparty then they can sign in the
+	// same user action leaving only one step left for the counterparty to sign. Privacy can be
+	// retained if the counterparty response has zeroized input hashes and indexes with locking
+	// information and the initiator just signs with "anyone can pay" sig hash flag so that the
+	// counterparty can update their inputs before signing.
+	//   1. Initiator - Send request describing which instruments to exchange.
+	//   2. Counterparty - Complete tx but not sign. This can be an immediate response by an agent.
+	//   3. Initiator - Sign tx.
+	//   4. Counterparty - Sign tx.
+	FourStepExchange bool `bsor:"5" json:"four_step_exchange,omitempty"`
+
+	// AutoExchangeResponse is true when a request to exchange will be responded to immediately
+	// without waiting for user approval. This provides receiving locking scripts and sending input
+	// information (that may be masked) from the recipient.
+	AutoExchangeResponse bool `bsor:"6" json:"auto_exchange_response,omitempty"`
 }
 
 type Status uint8
