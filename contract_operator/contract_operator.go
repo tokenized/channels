@@ -71,7 +71,25 @@ func ResponseCodeToString(code uint32) string {
 }
 
 type CreateAgent struct {
+	// AdminLockingScript is the locking script that will be given administrative control of the
+	// created smart contract agent. The SignTx request and any other admin smart contract agent
+	// requests must use this locking script.
 	AdminLockingScript bitcoin.Script `bsor:"1" json:"admin_locking_script"`
+
+	// MasterLockingScript is the locking script used to change the contract locking script in the
+	// worst case scenario that the contract locking script is compromised or the contract operator
+	// refuses to provide services. When left empty it will be provided by the contract operator.
+	MasterLockingScript bitcoin.Script `bsor:"2" json:"master_locking_script"`
+
+	// MinimumContractFee is the minimum fee, in satoshis, that is charged by the smart contract
+	// agent for every action response. The smart contract agent will reject any contract offers or
+	// contract amendments that try to set the value lower.
+	MinimumContractFee uint64 `bsor:"3" json:"contract_fee"`
+
+	// FeeLockingScript is the locking script to pay contract fees to. This should normally be
+	// controlled by and paid to the contract operator, but special deals can be made to pay to
+	// other parties. When left empty it will be provided by the contract operator.
+	FeeLockingScript bitcoin.Script `bsor:"4" json:"fee_locking_script"`
 }
 
 func (*CreateAgent) ProtocolID() envelope.ProtocolID {
@@ -97,7 +115,7 @@ func (m *CreateAgent) Write() (envelope.Data, error) {
 
 type Agent struct {
 	LockingScript       bitcoin.Script         `bsor:"1" json:"locking_script"`
-	ContractFee         uint64                 `bsor:"2" json:"contract_fee"`
+	MinimumContractFee  uint64                 `bsor:"2" json:"minimum_contract_fee"`
 	MasterLockingScript bitcoin.Script         `bsor:"3" json:"master_locking_script"`
 	PeerChannel         *peer_channels.Channel `bsor:"4" json:"peer_channel"`
 }
