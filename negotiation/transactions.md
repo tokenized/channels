@@ -47,36 +47,30 @@ There are standard scenarios that can help explain how this works. After each st
 
 Send is when the initiating party wants to send instruments to the counterparty.
 
-* (I) Create a partial transaction containing more sent instruments than received.
-* (C) Add destinations for the excess instruments.
-* (I) Verify and sign.
+1. (I) Create a partial transaction containing more sent instruments than received.
+2. (C) Add destinations for the excess instruments.
+3. (I) Verify and sign.
+4. (C) Verify and accept. This can be automatic for wallets with agents that simply verify the transaction fulfills the original request and any fee or other requirements.
 
 ### Receive
 
 Receive is when the initiating party wants to receive instruments from the counterparty.
 
-* (I) Create a partial transaction containing more received instruments than sent.
-* (C) Add inputs and senders of the instruments needed to equal those received then sign the transaction.
-* (I) Verify and accept.
+1. (I) Create a partial transaction containing more received instruments than sent.
+2. (C) Add inputs and senders of the instruments needed to equal those received then sign the transaction.
+3. (I) Verify and accept. This can be automatic for wallets with agents that simply verify the transaction fulfills the original request and any fee or other requirements.
 
-### Exchange
+### 4 Step Exchange
 
-Exchange is when the initiating party wants to exchange some instruments for other instruments with the counterparty.
+Exchange is when the initiating party wants to recieve one or more instruments from the counterparty in exchange for sending one or more instruments to the counterparty. When using the Tokenized protocol, even when bitcoin is also being transfered, the smart contract agent(s) can ensure that the action is atomic and no tokens or bitcoin are exchanged unless the exchange is completed in its entirety.
 
-* (I) Create a partial transaction containing more received instruments than sent for one or more instruments and more sent instruments than received for other instruments.
-* (C) Add inputs and senders of the instruments needed to equal those received, then add destinations for those instruments with excess senders, then sign the transaction. At this point the transaction will have some inputs signed by the counterparty, but other inputs that have yet to be signed by the initiator because the initiator could not have signed before the counterparty made their updates
-* (I) Verify and sign their inputs.
+The UX of an exchange can be improved if the counterparty automatically shares some information about their wallet. This way step 2 is immediate and automatic and the initiator can perform steps 1 and 3 in one action, then the counterparty can complete it in one user action. This makes it a "2 step exchange" from the UX point of view.
 
-
-### "2 Step" Exchange
-
-The UX of an exchange can be improved if the counterparty automatically shares some information about their wallet.
-
-* (I) Create a partial transaction containing more received instruments than sent for one or more instruments and more sent instruments than received for other instruments.
-* (C) The counterparty's wallet service automatically adds masked inputs and senders of the instruments needed to equal those received, then add destinations for those instruments with excess senders, but does not sign the transaction. Masked inputs use a zero hash and zero index in the outpoint to retain privacy until the user approves the interaction. This way only specific quantities of instruments are shared.
-* (I) The initiator can now sign their inputs with the signature hash flag ANYONE_CAN_PAY. This locks in all of the output data so the counterparty can't modify what is sent or received, but allows the counterparty to update their inputs before signing.
-* (C) Now the counterparty can update their inputs with actual outpoint hashes and indexes, then sign the tx.
-* (I) Verify and accept.
+1. (I) Create a partial transaction containing more received instruments than sent for one or more instruments and more sent instruments than received for other instruments.
+2. (C) The counterparty's wallet service automatically adds masked inputs and senders of the instruments needed to equal those received, then adds destinations for those instruments with excess senders, but does not sign the transaction. Masked inputs use a zero hash and zero index in the outpoint to retain privacy until the user approves the interaction. This way only specific quantities of instruments are shared, not the locking scripts that hold those balances.
+3. (I) The initiator can now make any final fee or input updates to the transaction based on the counterparty's changes and then sign their inputs with the signature hash flag ANYONE_CAN_PAY. This locks in all of the output data so the counterparty can't modify what is sent or received, but allows the counterparty to update their masked inputs before signing.
+4. (C) Now the counterparty can update their masked inputs with actual outpoint hashes and indexes, then sign the transaction.
+5. (I) Verify and accept. This can be automatic for wallets with agents that simply verify the transaction fulfills the original request and any fee or other requirements.
 
 Since the first response from the counterparty is automated the initiator can perform the first two steps as one as far as the UX is concerned, with a quick request/response in the middle. Then the second UX step is simply for the counterparty to sign.
 
