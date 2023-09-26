@@ -672,4 +672,622 @@ The smart contract agent will reply with a response transaction and when merkle 
 When either party receives a response transaction from the smart contract agent or merkle proofs they should send them to the other party.
 
 
-### Exchanges (Coming Soon)
+### Exchange Tokens
+
+Create partial transaction with one or more instruments with more senders than receivers and another instrument with more receivers than senders.
+
+The transaction mining fee should be zero so the counterparty knows that no bitcoin is being exchanged. This can be done by providing a masked output to maintain privacy during the negotiation. Inputs can also be masked if desired.
+
+The expanded tx JSON would look like this:
+
+```
+{
+  "tx": "01000000027a2e00a31ceb66f1bf67aeb40d0bc14501309de91c5dd6cb23ea801232c6988d0000000000ffffffffd6710d877b711bf4dfcbd135a0b71b8a304274193f07cdd39c982662e286cd130100000000ffffffff0587000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88ac64000000000000001976a914a2a4f1c764c289cd0d8fdf6dce5e02866f0c08e388ac000000000000000091006a02bd015108746573742e544b4e5301000254314c7a0a3d12034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098750a39080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098753d000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88acf90100000000000002516a00000000",
+  "ancestors": [
+    {
+      "tx": "01000000000101000000000000001976a9141fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea88ac00000000"
+    },
+    {
+      "tx": "010000000002d0070000000000001976a914c641f1a72328887bdee2132839b649fc14ebba0b88ac20030000000000001976a914a8a50e1612a189742e1c45ca6c1451da7a7240f588ac00000000"
+    }
+  ]
+}
+```
+
+Here is a text representation:
+
+```
+TxId: 1ea0c3e2b0f636640f6723d353c6822e32837dd7486ce39a993f8d7e783cd580 (359 bytes)
+  Version: 1
+  Inputs:
+
+    Outpoint: 0 - 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a
+    Script:
+    Sequence: ffffffff
+
+    Outpoint: 1 - 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6
+    Script:
+    Sequence: ffffffff
+
+  Outputs:
+
+    Value: 0.00000135
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000100
+    Script: OP_DUP OP_HASH160 0xa2a4f1c764c289cd0d8fdf6dce5e02866f0c08e3 OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000000
+    Script: OP_0 OP_RETURN 445 OP_1 0x746573742e544b4e OP_3 0 "T1" 0x0a3d12034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098750a39080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca46109875
+
+    Value: 0.00000061
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000505
+    Script: OP_1 OP_RETURN
+
+  LockTime: 0
+
+Fee: 0 (0.000000 sat/byte)
+Ancestors: 2
+  TxId: 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a (44 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00000001
+    Script: OP_DUP OP_HASH160 0x1fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+  TxId: 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6 (78 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00002000
+    Script: OP_DUP OP_HASH160 0xc641f1a72328887bdee2132839b649fc14ebba0b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000800
+    Script: OP_DUP OP_HASH160 0xa8a50e1612a189742e1c45ca6c1451da7a7240f5 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+Tokenized Test Action:
+Transfer {
+  "Instruments": [
+    {
+      "InstrumentType": "CCY",
+      "InstrumentCode": "9aBkFpWYT7dbYH62ZQ8Q6Iv67+s=",
+      "InstrumentSenders": [
+        {
+          "Quantity": 25000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIg+WO2ysSFQO1f6rHDYp5zJoc4x",
+          "Quantity": 15000
+        }
+      ]
+    },
+    {
+      "ContractIndex": 1,
+      "InstrumentType": "CCY",
+      "InstrumentCode": "4k/uqrFh0DINLkKvq+pxA4yaU+c=",
+      "InstrumentReceivers": [
+        {
+          "Address": "IIm8fWMWHCF0PJE7OKRRSxDMDspG",
+          "Quantity": 15000
+        }
+      ]
+    }
+  ]
+}
+Instrument ID 0: CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV
+Instrument ID 1: CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b
+```
+
+The first input authorizes the send of the 25000 tokens of CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV.
+
+The second input provides funding for the transaction.
+
+The first output is to the smart contract agent locking script corresponding with CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV and contains the contract fee and response funding totaling 135 satoshis.
+
+The second output is to the smart contract agent locking script corresponding with CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b and contains the contract fee totaling 100 satoshis. No response funding is necessary as the first contract is responsible for that.
+
+The third output is the OP_RETURN and contains the T1 Transfer Tokenized request.
+
+The fourth output is the "boomerang" output which funds the transactions that will be sent between the two smart contract agents to communicate settlement information and signatures.
+
+Since the input total of 801 equals the output total value of 801 the counterparty knows that no bitcoin is to be transferred as a result of this negotiation.
+
+The transfer action shows senders of 25000 and receivers of 15000 for token CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV. Meaning the counterparty is meant to receive 10000 tokens.
+
+The transfer action shows no senders of tokens for instrument CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b and a receiver of 15000 tokens. Meaning the counterparty is meant to send 15000 tokens.
+
+The recipient of this message should update the T1 Transfer Tokenized request output to add receivers of CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV totaling 10000 tokens and senders of CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b totaling at least 15000 tokens and any change receivers that are necessary. This also involves adding inputs to the transaction to authorize the sends with the smart contract agent and also possibly change outputs if there are more than dust satoshis in the inputs. The recipient doesn't need to try to adjust the contract or mining fees or add any additional funding as the initiator can still adjust all that.
+
+An appropriate response would look like this:
+
+```
+{
+  "tx": "01000000037a2e00a31ceb66f1bf67aeb40d0bc14501309de91c5dd6cb23ea801232c6988d0000000000ffffffffd6710d877b711bf4dfcbd135a0b71b8a304274193f07cdd39c982662e286cd130100000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000013006a02bd015102554c58515351016c52515351ffffffff059f000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88ac64000000000000001976a914a2a4f1c764c289cd0d8fdf6dce5e02866f0c08e388ac0000000000000000fd4201006a02bd015108746573742e544b4e5301000254314d2a010a7512034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098752a1a0a1520f0d0fd1c52e51b04227ee18748b1551e9e966b3d1088272a1a0a15203c3fb6baec3dd1288fafb4238e77f0ea33e1be641088270ab001080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72206080210a09c012a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098752a1a0a1520b3f392d7c72172c391a580a57bb68c425cf8545a10e8072a1a0a1520456ba4b052c1ba389e1395e2dd89ee8e67eef83910c60f2a1a0a15207db0c989c6c951c17c22c031c0c15673db74ced310d00f2a190a1520a1446bb611054f60e6e8b21b577763c1aa85f47f100a4f000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88acf90100000000000002516a00000000",
+  "ancestors": [
+    {
+      "tx": "01000000000101000000000000001976a9141fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea88ac00000000"
+    },
+    {
+      "tx": "010000000002d0070000000000001976a914c641f1a72328887bdee2132839b649fc14ebba0b88ac20030000000000001976a914a8a50e1612a189742e1c45ca6c1451da7a7240f588ac00000000"
+    }
+  ]
+}
+```
+Here is a text representation:
+
+```
+TxId: 166bc5f02ba914877872d0768e969ec32f5c8f246c8f0ec71aa84f392aaa4ab8 (598 bytes)
+  Version: 1
+  Inputs:
+
+    Outpoint: 0 - 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a
+    Script:
+    Sequence: ffffffff
+
+    Outpoint: 1 - 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6
+    Script:
+    Sequence: ffffffff
+
+    Outpoint: 0 - 0000000000000000000000000000000000000000000000000000000000000000
+    Script: OP_0 OP_RETURN 445 OP_1 "UL" OP_8 OP_1 OP_3 OP_1 108 OP_2 OP_1 OP_3 OP_1
+    Sequence: ffffffff
+
+  Outputs:
+
+    Value: 0.00000159
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000100
+    Script: OP_DUP OP_HASH160 0xa2a4f1c764c289cd0d8fdf6dce5e02866f0c08e3 OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000000
+    Script: OP_0 OP_RETURN 445 OP_1 0x746573742e544b4e OP_3 0 "T1" 0x0a7512034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098752a1a0a1520f0d0fd1c52e51b04227ee18748b1551e9e966b3d1088272a1a0a15203c3fb6baec3dd1288fafb4238e77f0ea33e1be641088270ab001080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72206080210a09c012a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098752a1a0a1520b3f392d7c72172c391a580a57bb68c425cf8545a10e8072a1a0a1520456ba4b052c1ba389e1395e2dd89ee8e67eef83910c60f2a1a0a15207db0c989c6c951c17c22c031c0c15673db74ced310d00f2a190a1520a1446bb611054f60e6e8b21b577763c1aa85f47f100a
+
+    Value: 0.00000079
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000505
+    Script: OP_1 OP_RETURN
+
+  LockTime: 0
+
+Fee: input output 2: parent:0000000000000000000000000000000000000000000000000000000000000000: Missing Input
+Ancestors: 2
+  TxId: 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a (44 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00000001
+    Script: OP_DUP OP_HASH160 0x1fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+  TxId: 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6 (78 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00002000
+    Script: OP_DUP OP_HASH160 0xc641f1a72328887bdee2132839b649fc14ebba0b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000800
+    Script: OP_DUP OP_HASH160 0xa8a50e1612a189742e1c45ca6c1451da7a7240f5 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+Tokenized Test Action:
+Transfer {
+  "Instruments": [
+    {
+      "InstrumentType": "CCY",
+      "InstrumentCode": "9aBkFpWYT7dbYH62ZQ8Q6Iv67+s=",
+      "InstrumentSenders": [
+        {
+          "Quantity": 25000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIg+WO2ysSFQO1f6rHDYp5zJoc4x",
+          "Quantity": 15000
+        },
+        {
+          "Address": "IPDQ/RxS5RsEIn7hh0ixVR6elms9",
+          "Quantity": 5000
+        },
+        {
+          "Address": "IDw/trrsPdEoj6+0I4538Ooz4b5k",
+          "Quantity": 5000
+        }
+      ]
+    },
+    {
+      "ContractIndex": 1,
+      "InstrumentType": "CCY",
+      "InstrumentCode": "4k/uqrFh0DINLkKvq+pxA4yaU+c=",
+      "InstrumentSenders": [
+        {
+          "Index": 2,
+          "Quantity": 20000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIm8fWMWHCF0PJE7OKRRSxDMDspG",
+          "Quantity": 15000
+        },
+        {
+          "Address": "ILPzktfHIXLDkaWApXu2jEJc+FRa",
+          "Quantity": 1000
+        },
+        {
+          "Address": "IEVrpLBSwbo4nhOV4t2J7o5n7vg5",
+          "Quantity": 1990
+        },
+        {
+          "Address": "IH2wyYnGyVHBfCLAMcDBVnPbdM7T",
+          "Quantity": 2000
+        },
+        {
+          "Address": "IKFEa7YRBU9g5uiyG1d3Y8GqhfR/",
+          "Quantity": 10
+        }
+      ]
+    }
+  ]
+}
+Instrument ID 0: CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV
+Instrument ID 1: CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b
+```
+
+The counterparty added two recievers for CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV totaling 10000 tokens to zero out the senders and receivers of that instrument.
+
+The counterparty added a third input that only has one satoshi to authorize the sending of 20000 tokens of CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b that it added to the transfer action. It also added 4 change receivers for CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b totaling 4000 tokens leaving the 15000 tokens to the initiators receiver.
+
+The recipient of this message, the initiator, should update the tx mining fee, contract fees, and boomerang funding based on the final transfer data. Then the can sign with `ANYONE_CAN_PAY` signature hash type flag so that the signature will not include the counterparty's masked input that will be updated after. You can see the last byte of the signatures in the unlocking scripts are `0xc1` which is the signature hash type of `FORK_ID` + `ALL` + `ANYONE_CAN_PAY`.
+
+An appropriate response would look like this:
+
+```
+{
+  "tx": "01000000037a2e00a31ceb66f1bf67aeb40d0bc14501309de91c5dd6cb23ea801232c6988d000000006b483045022100961aa767167c8924c9b0da0f9491a154460f4394f609df6450b7dbffc2d333a002201e7d51543252bba8a7594036330d4c9df6818b63b4934dc41a71e2db051f8838c1210287e1bd462cceee018a5a3674d39fa126faa7b5c578ee22b6a4b96bab20cadc94ffffffffd6710d877b711bf4dfcbd135a0b71b8a304274193f07cdd39c982662e286cd13010000006b48304502210085b0a60c7a5cae07e672ed24bf2952ec82df9e2367caf475696ab0b712ee096002205f01cc35197962dd6f5b12d2306e7db58fa57370819048fbe30bb9249e7bdf51c1210214ed3ac3baf55aa0ec29885952eb483f80f017ab8e909a617f441288e1516a2dffffffff00000000000000000000000000000000000000000000000000000000000000000000000013006a02bd015102554c58515351016c52515351ffffffff059e000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88ac64000000000000001976a914a2a4f1c764c289cd0d8fdf6dce5e02866f0c08e388ac0000000000000000fd4201006a02bd015108746573742e544b4e5301000254314d2a010a7512034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098752a1a0a1520f0d0fd1c52e51b04227ee18748b1551e9e966b3d1088272a1a0a15203c3fb6baec3dd1288fafb4238e77f0ea33e1be641088270ab001080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72206080210a09c012a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098752a1a0a1520b3f392d7c72172c391a580a57bb68c425cf8545a10e8072a1a0a1520456ba4b052c1ba389e1395e2dd89ee8e67eef83910c60f2a1a0a15207db0c989c6c951c17c22c031c0c15673db74ced310d00f2a190a1520a1446bb611054f60e6e8b21b577763c1aa85f47f100a4e000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88aca3010000000000001976a914692b321a8255074bfe6d25af4217d40c959b015788ac00000000",
+  "ancestors": [
+    {
+      "tx": "01000000000101000000000000001976a9141fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea88ac00000000"
+    },
+    {
+      "tx": "010000000002d0070000000000001976a914c641f1a72328887bdee2132839b649fc14ebba0b88ac20030000000000001976a914a8a50e1612a189742e1c45ca6c1451da7a7240f588ac00000000"
+    }
+  ]
+}
+```
+Here is a text representation:
+
+```
+TxId: 2ab2184d9be28fbf41a5ae8517015eb3abb44fbf15b0c990308428c8fb4ec104 (835 bytes)
+  Version: 1
+  Inputs:
+
+    Outpoint: 0 - 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a
+    Script: 0x3045022100961aa767167c8924c9b0da0f9491a154460f4394f609df6450b7dbffc2d333a002201e7d51543252bba8a7594036330d4c9df6818b63b4934dc41a71e2db051f8838c1 0x0287e1bd462cceee018a5a3674d39fa126faa7b5c578ee22b6a4b96bab20cadc94
+    Sequence: ffffffff
+
+    Outpoint: 1 - 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6
+    Script: 0x304502210085b0a60c7a5cae07e672ed24bf2952ec82df9e2367caf475696ab0b712ee096002205f01cc35197962dd6f5b12d2306e7db58fa57370819048fbe30bb9249e7bdf51c1 0x0214ed3ac3baf55aa0ec29885952eb483f80f017ab8e909a617f441288e1516a2d
+    Sequence: ffffffff
+
+    Outpoint: 0 - 0000000000000000000000000000000000000000000000000000000000000000
+    Script: OP_0 OP_RETURN 445 OP_1 "UL" OP_8 OP_1 OP_3 OP_1 108 OP_2 OP_1 OP_3 OP_1
+    Sequence: ffffffff
+
+  Outputs:
+
+    Value: 0.00000158
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000100
+    Script: OP_DUP OP_HASH160 0xa2a4f1c764c289cd0d8fdf6dce5e02866f0c08e3 OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000000
+    Script: OP_0 OP_RETURN 445 OP_1 0x746573742e544b4e OP_3 0 "T1" 0x0a7512034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098752a1a0a1520f0d0fd1c52e51b04227ee18748b1551e9e966b3d1088272a1a0a15203c3fb6baec3dd1288fafb4238e77f0ea33e1be641088270ab001080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72206080210a09c012a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098752a1a0a1520b3f392d7c72172c391a580a57bb68c425cf8545a10e8072a1a0a1520456ba4b052c1ba389e1395e2dd89ee8e67eef83910c60f2a1a0a15207db0c989c6c951c17c22c031c0c15673db74ced310d00f2a190a1520a1446bb611054f60e6e8b21b577763c1aa85f47f100a
+
+    Value: 0.00000078
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000419
+    Script: OP_DUP OP_HASH160 0x692b321a8255074bfe6d25af4217d40c959b0157 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+
+Fee: input output 2: parent:0000000000000000000000000000000000000000000000000000000000000000: Missing Input
+Ancestors: 2
+  TxId: 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a (44 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00000001
+    Script: OP_DUP OP_HASH160 0x1fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+  TxId: 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6 (78 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00002000
+    Script: OP_DUP OP_HASH160 0xc641f1a72328887bdee2132839b649fc14ebba0b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000800
+    Script: OP_DUP OP_HASH160 0xa8a50e1612a189742e1c45ca6c1451da7a7240f5 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+Tokenized Test Action:
+Transfer {
+  "Instruments": [
+    {
+      "InstrumentType": "CCY",
+      "InstrumentCode": "9aBkFpWYT7dbYH62ZQ8Q6Iv67+s=",
+      "InstrumentSenders": [
+        {
+          "Quantity": 25000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIg+WO2ysSFQO1f6rHDYp5zJoc4x",
+          "Quantity": 15000
+        },
+        {
+          "Address": "IPDQ/RxS5RsEIn7hh0ixVR6elms9",
+          "Quantity": 5000
+        },
+        {
+          "Address": "IDw/trrsPdEoj6+0I4538Ooz4b5k",
+          "Quantity": 5000
+        }
+      ]
+    },
+    {
+      "ContractIndex": 1,
+      "InstrumentType": "CCY",
+      "InstrumentCode": "4k/uqrFh0DINLkKvq+pxA4yaU+c=",
+      "InstrumentSenders": [
+        {
+          "Index": 2,
+          "Quantity": 20000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIm8fWMWHCF0PJE7OKRRSxDMDspG",
+          "Quantity": 15000
+        },
+        {
+          "Address": "ILPzktfHIXLDkaWApXu2jEJc+FRa",
+          "Quantity": 1000
+        },
+        {
+          "Address": "IEVrpLBSwbo4nhOV4t2J7o5n7vg5",
+          "Quantity": 1990
+        },
+        {
+          "Address": "IH2wyYnGyVHBfCLAMcDBVnPbdM7T",
+          "Quantity": 2000
+        },
+        {
+          "Address": "IKFEa7YRBU9g5uiyG1d3Y8GqhfR/",
+          "Quantity": 10
+        }
+      ]
+    }
+  ]
+}
+Instrument ID 0: CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV
+Instrument ID 1: CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b
+```
+
+The fees are all now finalized and the initator's inputs are signed. Now the counterparty must simply update, unmask, their input, and sign the transaction. These signatures don't need the `ANYONE_CAN_PAY` signature hash type flag since there will be no further changes to the tx.
+
+An appropriate response would look like this:
+```
+{
+  "tx": "01000000037a2e00a31ceb66f1bf67aeb40d0bc14501309de91c5dd6cb23ea801232c6988d000000006b483045022100961aa767167c8924c9b0da0f9491a154460f4394f609df6450b7dbffc2d333a002201e7d51543252bba8a7594036330d4c9df6818b63b4934dc41a71e2db051f8838c1210287e1bd462cceee018a5a3674d39fa126faa7b5c578ee22b6a4b96bab20cadc94ffffffffd6710d877b711bf4dfcbd135a0b71b8a304274193f07cdd39c982662e286cd13010000006b48304502210085b0a60c7a5cae07e672ed24bf2952ec82df9e2367caf475696ab0b712ee096002205f01cc35197962dd6f5b12d2306e7db58fa57370819048fbe30bb9249e7bdf51c1210214ed3ac3baf55aa0ec29885952eb483f80f017ab8e909a617f441288e1516a2dffffffffdf19b903915aeec1818ea101e3f63ec42344f187f4e1c4a4210c27e59c4c1c40000000006b483045022100f1d8282aab0e4cb402a0eaff006b7b872deef5a4db0ccf7d9d7057fa26d45fd50220623e2d16fd29aa4b3cc02f72cbf49e4311775df5151c8b8c2ac0323537b5c403412103b609c0cd05d4fd3563e0fd75f79a30c318f3cddd2ebe88506870999842c6b733ffffffff059e000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88ac64000000000000001976a914a2a4f1c764c289cd0d8fdf6dce5e02866f0c08e388ac0000000000000000fd4201006a02bd015108746573742e544b4e5301000254314d2a010a7512034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098752a1a0a1520f0d0fd1c52e51b04227ee18748b1551e9e966b3d1088272a1a0a15203c3fb6baec3dd1288fafb4238e77f0ea33e1be641088270ab001080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72206080210a09c012a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098752a1a0a1520b3f392d7c72172c391a580a57bb68c425cf8545a10e8072a1a0a1520456ba4b052c1ba389e1395e2dd89ee8e67eef83910c60f2a1a0a15207db0c989c6c951c17c22c031c0c15673db74ced310d00f2a190a1520a1446bb611054f60e6e8b21b577763c1aa85f47f100a4e000000000000001976a9143031629f5c455c8960836c8b2c9e2a6f5057267b88aca3010000000000001976a914692b321a8255074bfe6d25af4217d40c959b015788ac00000000",
+  "ancestors": [
+    {
+      "tx": "01000000000101000000000000001976a9141fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea88ac00000000"
+    },
+    {
+      "tx": "010000000002d0070000000000001976a914c641f1a72328887bdee2132839b649fc14ebba0b88ac20030000000000001976a914a8a50e1612a189742e1c45ca6c1451da7a7240f588ac00000000"
+    },
+    {
+      "tx": "01000000015f2da7cd4db480803a99d46fe0973cab33ef51e88969356e055471c369b829f8050000006b4830450221009e2f3183320cd6c1c5a5743f049bf8993fae9e2a402055c7ab566977e01eff3502200754a80761c1b64cf2c130fe82474575725d00705b6b667fa463c6a78419405b412103098a2382e101690d2705930bdfda56f342a414eca0dfb23fd24ee6e85145e279ffffffff0201000000000000001976a91476187b407602557bc7a2e8ea89aea5c62f4e172d88acdc030000000000001976a914db7703098237653b0d0628ba44ffba72e4aacd2288ac00000000"
+    }
+  ]
+}
+```
+Here is a text representation:
+
+```
+TxId: d26a1a437faacfffa81160b1a043e7209a67fc9e05686039d316fbde1f10dbf9 (923 bytes)
+  Version: 1
+  Inputs:
+
+    Outpoint: 0 - 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a
+    Script: 0x3045022100961aa767167c8924c9b0da0f9491a154460f4394f609df6450b7dbffc2d333a002201e7d51543252bba8a7594036330d4c9df6818b63b4934dc41a71e2db051f8838c1 0x0287e1bd462cceee018a5a3674d39fa126faa7b5c578ee22b6a4b96bab20cadc94
+    Sequence: ffffffff
+
+    Outpoint: 1 - 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6
+    Script: 0x304502210085b0a60c7a5cae07e672ed24bf2952ec82df9e2367caf475696ab0b712ee096002205f01cc35197962dd6f5b12d2306e7db58fa57370819048fbe30bb9249e7bdf51c1 0x0214ed3ac3baf55aa0ec29885952eb483f80f017ab8e909a617f441288e1516a2d
+    Sequence: ffffffff
+
+    Outpoint: 0 - 401c4c9ce5270c21a4c4e1f487f14423c43ef6e301a18e81c1ee5a9103b919df
+    Script: 0x3045022100f1d8282aab0e4cb402a0eaff006b7b872deef5a4db0ccf7d9d7057fa26d45fd50220623e2d16fd29aa4b3cc02f72cbf49e4311775df5151c8b8c2ac0323537b5c40341 0x03b609c0cd05d4fd3563e0fd75f79a30c318f3cddd2ebe88506870999842c6b733
+    Sequence: ffffffff
+
+  Outputs:
+
+    Value: 0.00000158
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000100
+    Script: OP_DUP OP_HASH160 0xa2a4f1c764c289cd0d8fdf6dce5e02866f0c08e3 OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000000
+    Script: OP_0 OP_RETURN 445 OP_1 0x746573742e544b4e OP_3 0 "T1" 0x0a7512034343591a14f5a0641695984fb75b607eb6650f10e88bfaefeb220410a8c3012a1a0a1520883e58edb2b121503b57faac70d8a79cc9a1ce311098752a1a0a1520f0d0fd1c52e51b04227ee18748b1551e9e966b3d1088272a1a0a15203c3fb6baec3dd1288fafb4238e77f0ea33e1be641088270ab001080112034343591a14e24feeaab161d0320d2e42afabea71038c9a53e72206080210a09c012a1a0a152089bc7d63161c21743c913b38a4514b10cc0eca461098752a1a0a1520b3f392d7c72172c391a580a57bb68c425cf8545a10e8072a1a0a1520456ba4b052c1ba389e1395e2dd89ee8e67eef83910c60f2a1a0a15207db0c989c6c951c17c22c031c0c15673db74ced310d00f2a190a1520a1446bb611054f60e6e8b21b577763c1aa85f47f100a
+
+    Value: 0.00000078
+    Script: OP_DUP OP_HASH160 0x3031629f5c455c8960836c8b2c9e2a6f5057267b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000419
+    Script: OP_DUP OP_HASH160 0x692b321a8255074bfe6d25af4217d40c959b0157 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+
+Fee: 47 (0.050921 sat/byte)
+Ancestors: 3
+  TxId: 8d98c6321280ea23cbd65d1ce99d300145c10b0db4ae67bff166eb1ca3002e7a (44 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00000001
+    Script: OP_DUP OP_HASH160 0x1fdbe69c7a8bf3bae1806ef8376fe5c539fc0cea OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+  TxId: 13cd86e26226989cd3cd073f197442308a1bb7a035d1cbdff41b717b870d71d6 (78 bytes)
+  Version: 1
+  Inputs:
+
+  Outputs:
+
+    Value: 0.00002000
+    Script: OP_DUP OP_HASH160 0xc641f1a72328887bdee2132839b649fc14ebba0b OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000800
+    Script: OP_DUP OP_HASH160 0xa8a50e1612a189742e1c45ca6c1451da7a7240f5 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+  TxId: 401c4c9ce5270c21a4c4e1f487f14423c43ef6e301a18e81c1ee5a9103b919df (226 bytes)
+  Version: 1
+  Inputs:
+
+    Outpoint: 5 - f829b869c37154056e356989e851ef33ab3c97e06fd4993a8080b44dcda72d5f
+    Script: 0x30450221009e2f3183320cd6c1c5a5743f049bf8993fae9e2a402055c7ab566977e01eff3502200754a80761c1b64cf2c130fe82474575725d00705b6b667fa463c6a78419405b41 0x03098a2382e101690d2705930bdfda56f342a414eca0dfb23fd24ee6e85145e279
+    Sequence: ffffffff
+
+  Outputs:
+
+    Value: 0.00000001
+    Script: OP_DUP OP_HASH160 0x76187b407602557bc7a2e8ea89aea5c62f4e172d OP_EQUALVERIFY OP_CHECKSIG
+
+    Value: 0.00000988
+    Script: OP_DUP OP_HASH160 0xdb7703098237653b0d0628ba44ffba72e4aacd22 OP_EQUALVERIFY OP_CHECKSIG
+
+  LockTime: 0
+  0 Miner Responses
+
+Tokenized Test Action:
+Transfer {
+  "Instruments": [
+    {
+      "InstrumentType": "CCY",
+      "InstrumentCode": "9aBkFpWYT7dbYH62ZQ8Q6Iv67+s=",
+      "InstrumentSenders": [
+        {
+          "Quantity": 25000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIg+WO2ysSFQO1f6rHDYp5zJoc4x",
+          "Quantity": 15000
+        },
+        {
+          "Address": "IPDQ/RxS5RsEIn7hh0ixVR6elms9",
+          "Quantity": 5000
+        },
+        {
+          "Address": "IDw/trrsPdEoj6+0I4538Ooz4b5k",
+          "Quantity": 5000
+        }
+      ]
+    },
+    {
+      "ContractIndex": 1,
+      "InstrumentType": "CCY",
+      "InstrumentCode": "4k/uqrFh0DINLkKvq+pxA4yaU+c=",
+      "InstrumentSenders": [
+        {
+          "Index": 2,
+          "Quantity": 20000
+        }
+      ],
+      "InstrumentReceivers": [
+        {
+          "Address": "IIm8fWMWHCF0PJE7OKRRSxDMDspG",
+          "Quantity": 15000
+        },
+        {
+          "Address": "ILPzktfHIXLDkaWApXu2jEJc+FRa",
+          "Quantity": 1000
+        },
+        {
+          "Address": "IEVrpLBSwbo4nhOV4t2J7o5n7vg5",
+          "Quantity": 1990
+        },
+        {
+          "Address": "IH2wyYnGyVHBfCLAMcDBVnPbdM7T",
+          "Quantity": 2000
+        },
+        {
+          "Address": "IKFEa7YRBU9g5uiyG1d3Y8GqhfR/",
+          "Quantity": 10
+        }
+      ]
+    }
+  ]
+}
+Instrument ID 0: CCYPPkhABq6QBCBHmGo6SqvDeq9uZeqG1siV
+Instrument ID 1: CCYMddU9WUQUQPBhNLotruhqHRjJ8VnYdg2b
+```
+
+The initiator should then verify the transaction, return a positive acknowledge to the counterparty, and post the transaction to the bitcoin network or directly to the smart contract agent.
+
+If there is something that the initiator doesn't approve of then they should send a negative acknowledge and both parties should drop the transaction and not broadcast it.
+
+When the counterparty receives a positive acknowledge then they can also broadcast the transaction to the bitcoin network or directly to the smart contract agent.
+
+The smart contract agent will reply with a response transaction and when merkle proofs are available it will post those on the reply to channel as well.
+
+When either party receives a response transaction from the smart contract agent or merkle proofs they should send them to the other party.
