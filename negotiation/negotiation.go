@@ -66,7 +66,7 @@ type Options struct {
 	//   1. Initiator - Send request describing which instruments the initiator wants to send.
 	//   2. Counterparty - Provide receiving data. This can be an immediate response by an agent.
 	//   3. Initiator - Complete and sign tx.
-	SendDisabled bool `bsor:"1" json:"send_disbled,omitempty"`
+	SendDisabled bool `bsor:"1" json:"send_disabled,omitempty"`
 
 	// AutoSendResponse is true when a request to send will be responded to immediately without
 	// waiting for user approval. This provides receiving locking scripts from the recipient.
