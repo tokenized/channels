@@ -21,7 +21,7 @@ Masked inputs are used to maintain privacy during a negotiation. They can be use
 
 When providing a masked input the other party may still need to know certain things about the intended input. They will likely need to know the value of the UTXO being spent and estimated size of the unlocking script that will be required. This data allows the other party to know how much bitcoin is being transacted and calculate the transaction mining fee.
 
-This [unlocking script data structure](https://github.com/tokenized/txbuilder/blob/master/unlocking_data/unlocking_data.go) can provide that data in the unlocking script. It can be recognized by the fact that it is an OP_FALSE OP_RETURN script in the unlocking script of the input, which is never valid in a final transaction.
+This [unlocking script data structure](https://github.com/tokenized/channels/blob/master/unlocking_data/unlocking_data.go) can provide that data in the unlocking script. It can be recognized by the fact that it is an OP_FALSE OP_RETURN script in the unlocking script of the input, which is never valid in a final transaction.
 
 It provides these fields.
 
