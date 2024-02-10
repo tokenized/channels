@@ -45,7 +45,7 @@ func (*Protocol) ResponseCodeToString(code uint32) string {
 type UnlockingData struct {
 	Size  uint64 `bsor:"1"`
 	Value uint64 `bsor:"2"`
-	Party uint64 `bsor:"3"`
+	Party Party  `bsor:"3"`
 }
 
 func (*UnlockingData) ProtocolID() envelope.ProtocolID {
