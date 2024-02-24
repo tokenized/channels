@@ -30,8 +30,8 @@ var (
 	// ResponseCodeMissingContractOutput means the tx to sign does not yet have a contract output.
 	ResponseCodeMissingContractOutput = uint32(2)
 
-	// ResponseCodeContractOfferInvalid means the contract offer in the tx to sign is invalid.
-	ResponseCodeContractOfferInvalid = uint32(3)
+	// ResponseCodeContractActionInvalid means the contract action in the tx to sign is invalid.
+	ResponseCodeContractActionInvalid = uint32(3)
 
 	ErrUnsupportedVersion                 = errors.New("Unsupported Operator Version")
 	ErrUnsupportedContractOperatorMessage = errors.New("Unsupported Operator Message")
@@ -63,8 +63,8 @@ func ResponseCodeToString(code uint32) string {
 		return "missing_admin_input"
 	case ResponseCodeMissingContractOutput:
 		return "missing_contract_output"
-	case ResponseCodeContractOfferInvalid:
-		return "contract_offer_invalid"
+	case ResponseCodeContractActionInvalid:
+		return "contract_action_invalid"
 	default:
 		return "parse_error"
 	}
