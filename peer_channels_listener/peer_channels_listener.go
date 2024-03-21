@@ -55,15 +55,19 @@ func (l *PeerChannelsListener) AddUpdate(update interface{}) {
 	l.updatesChannel <- update
 }
 
-func (l *PeerChannelsListener) Run(ctx context.Context,
-	interrupt <-chan interface{}) error {
+func (l *PeerChannelsListener) Run(ctx context.Context, interrupt <-chan interface{}) error {
 	var wait sync.WaitGroup
 
 	listenThread, listenComplete := threads.NewInterruptableThreadComplete("Peer Channel Listen",
-		l.listen, &wait)
+		func(ctx context.Context, interrupt <-chan interface{}) error {
+			return l.listen(ctx, interrupt, CopyString(l.readToken))
+		}, &wait)
 
 	handleThread, handleComplete := threads.NewInterruptableThreadComplete("Peer Channel Handle",
-		l.handle, &wait)
+		func(ctx context.Context, interrupt <-chan interface{}) error {
+			return l.handle(ctx, interrupt, l.handleMessage, l.handleUpdate,
+				CopyString(l.readToken))
+		}, &wait)
 
 	listenThread.Start(ctx)
 	handleThread.Start(ctx)
@@ -81,11 +85,19 @@ func (l *PeerChannelsListener) Run(ctx context.Context,
 	return threads.CombineErrors(listenThread.Error(), handleThread.Error())
 }
 
-func (l *PeerChannelsListener) listen(ctx context.Context, interrupt <-chan interface{}) error {
+func CopyString(s string) string {
+	result := make([]byte, len(s))
+	copy(result, s)
+	return string(result)
+}
+
+func (l *PeerChannelsListener) listen(ctx context.Context, interrupt <-chan interface{},
+	readToken string) error {
+
 	for {
 		logger.Info(ctx, "Connecting to peer channel service to listen for UUID messages")
 
-		if err := l.peerChannelsClient.Listen(ctx, l.readToken, true, l.messagesChannel,
+		if err := l.peerChannelsClient.Listen(ctx, readToken, true, l.messagesChannel,
 			interrupt); err != nil {
 			if errors.Cause(err) == threads.Interrupted {
 				return nil
@@ -105,27 +117,27 @@ func (l *PeerChannelsListener) listen(ctx context.Context, interrupt <-chan inte
 	}
 }
 
-func (l *PeerChannelsListener) handle(ctx context.Context,
-	interrupt <-chan interface{}) error {
+func (l *PeerChannelsListener) handle(ctx context.Context, interrupt <-chan interface{},
+	handleMessage HandleMessage, handleUpdate HandleUpdate, readToken string) error {
 	for {
 		select {
 		case msg := <-l.messagesChannel:
-			if err := l.handleMessage(ctx, msg); err != nil &&
+			if err := handleMessage(ctx, msg); err != nil &&
 				errors.Cause(err) != MessageNotRelevent {
 				return errors.Wrap(err, "handle message")
 			}
 
-			if err := l.peerChannelsClient.MarkMessages(ctx, msg.ChannelID, l.readToken,
+			if err := l.peerChannelsClient.MarkMessages(ctx, msg.ChannelID, readToken,
 				msg.Sequence, true, true); err != nil {
 				return errors.Wrap(err, "mark message")
 			}
 
 		case update := <-l.updatesChannel:
-			if l.handleUpdate == nil {
+			if handleUpdate == nil {
 				return errors.New("Received update with no handler specified")
 			}
 
-			if err := l.handleUpdate(ctx, update); err != nil {
+			if err := handleUpdate(ctx, update); err != nil {
 				return errors.Wrap(err, "handle update")
 			}
 
