@@ -2,6 +2,8 @@ package peer_channels_listener
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -36,10 +38,11 @@ type PeerChannelsListener struct {
 	handleUpdate       HandleUpdate
 	messagesChannel    chan peer_channels.Message
 	updatesChannel     chan interface{}
+	handleThreadCount  int
 }
 
 func NewPeerChannelsListener(peerChannelsClient peer_channels.Client, readToken string,
-	channelSize int, handleMessage HandleMessage,
+	channelSize, handleThreadCount int, handleMessage HandleMessage,
 	handleUpdate HandleUpdate) *PeerChannelsListener {
 	return &PeerChannelsListener{
 		peerChannelsClient: peerChannelsClient,
@@ -48,6 +51,7 @@ func NewPeerChannelsListener(peerChannelsClient peer_channels.Client, readToken 
 		handleUpdate:       handleUpdate,
 		messagesChannel:    make(chan peer_channels.Message, channelSize),
 		updatesChannel:     make(chan interface{}, channelSize),
+		handleThreadCount:  handleThreadCount,
 	}
 }
 
@@ -56,33 +60,86 @@ func (l *PeerChannelsListener) AddUpdate(update interface{}) {
 }
 
 func (l *PeerChannelsListener) Run(ctx context.Context, interrupt <-chan interface{}) error {
-	var wait sync.WaitGroup
+	var listenWait, handleWait sync.WaitGroup
+	var selects []reflect.SelectCase
 
 	listenThread, listenComplete := threads.NewInterruptableThreadComplete("Peer Channel Listen",
 		func(ctx context.Context, interrupt <-chan interface{}) error {
 			return l.listen(ctx, interrupt, CopyString(l.readToken))
-		}, &wait)
+		}, &listenWait)
+	selects = append(selects, reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(listenComplete),
+	})
 
-	handleThread, handleComplete := threads.NewInterruptableThreadComplete("Peer Channel Handle",
-		func(ctx context.Context, interrupt <-chan interface{}) error {
-			return l.handle(ctx, interrupt, l.handleMessage, l.handleUpdate,
-				CopyString(l.readToken))
-		}, &wait)
+	handleThreads := make([]*threads.InterruptableThread, l.handleThreadCount)
+	for i := 0; i < l.handleThreadCount; i++ {
+		index := i
+		handleThread, handleComplete := threads.NewInterruptableThreadComplete(fmt.Sprintf("Peer Channel Handle %d", index),
+			func(ctx context.Context, interrupt <-chan interface{}) error {
+				return l.handle(ctx, interrupt, l.handleMessage, l.handleUpdate,
+					CopyString(l.readToken))
+			}, &handleWait)
+		handleThreads[i] = handleThread
+
+		selects = append(selects, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(handleComplete),
+		})
+	}
+
+	interruptIndex := len(selects)
+	selects = append(selects, reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(interrupt),
+	})
 
 	listenThread.Start(ctx)
-	handleThread.Start(ctx)
+	for _, handleThread := range handleThreads {
+		handleThread.Start(ctx)
+	}
 
-	select {
-	case <-listenComplete:
-	case <-handleComplete:
-	case <-interrupt:
+	selectIndex, selectValue, valueReceived := reflect.Select(selects)
+	var selectErr error
+	if valueReceived {
+		selectInterface := selectValue.Interface()
+		if selectInterface != nil {
+			err, ok := selectInterface.(error)
+			if ok {
+				selectErr = err
+			}
+		}
+	}
+
+	if selectIndex == 0 {
+		logger.Error(ctx, "Peer Channel Listen thread completed : %s", selectErr)
+	} else if selectIndex < interruptIndex {
+		logger.Error(ctx, "Peer Channel Handle thread %d completed : %s", selectIndex-1, selectErr)
 	}
 
 	listenThread.Stop(ctx)
-	handleThread.Stop(ctx)
+	listenWait.Wait()
 
-	wait.Wait()
-	return threads.CombineErrors(listenThread.Error(), handleThread.Error())
+	for _, handleThread := range handleThreads {
+		handleThread.Stop(ctx)
+	}
+	handleWait.Wait()
+
+	var errs []error
+	if err := listenThread.Error(); err != nil {
+		errs = append(errs, err)
+	}
+	for _, handleThread := range handleThreads {
+		if err := handleThread.Error(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return threads.CombineErrors(errs...)
+	}
+
+	return nil
 }
 
 func CopyString(s string) string {
@@ -95,7 +152,7 @@ func (l *PeerChannelsListener) listen(ctx context.Context, interrupt <-chan inte
 	readToken string) error {
 
 	for {
-		logger.Info(ctx, "Connecting to peer channel service to listen for UUID messages")
+		logger.Info(ctx, "Connecting to peer channel service to listen for messages")
 
 		if err := l.peerChannelsClient.Listen(ctx, readToken, true, l.messagesChannel,
 			interrupt); err != nil {
