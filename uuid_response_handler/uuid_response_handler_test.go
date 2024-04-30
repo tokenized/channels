@@ -26,7 +26,7 @@ func Test_MessageHandling(t *testing.T) {
 
 	handler := NewHandler()
 	listener := peer_channels_listener.NewPeerChannelsListener(peerChannelsClient,
-		peerChannelsAccount.Token, 100, 1, handler.HandleMessage, handler.HandleUpdate)
+		peerChannelsAccount.Token, 100, 1, time.Second, handler.HandleMessage, handler.HandleUpdate)
 	handler.SetAddUpdate(listener.AddUpdate)
 
 	listenerInterrupt := make(chan interface{})

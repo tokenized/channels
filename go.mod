@@ -8,7 +8,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/tokenized/envelope v1.1.0
 	github.com/tokenized/logger v0.1.3
-	github.com/tokenized/pkg v0.7.1-0.20240322160211-478383da3ef4
+	github.com/tokenized/pkg v0.7.1-0.20240430143333-d07a56355119
 	github.com/tokenized/specification v1.3.2-0.20240319164336-d3d9a076f61e
 	github.com/tokenized/threads v0.1.2
 )

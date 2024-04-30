@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tokenized/logger"
@@ -29,7 +30,7 @@ type HandleUpdate func(ctx context.Context, update interface{}) error
 // AddUpdate adds an update struct to be handled in the same thread as the message handler. This
 // function interface can be used by the message handler so that there isn't a circular dependency
 // between the message handler and the listener.
-type AddUpdate func(update interface{})
+type AddUpdate func(update interface{}) error
 
 type PeerChannelsListener struct {
 	peerChannelsClient peer_channels.Client
@@ -39,12 +40,13 @@ type PeerChannelsListener struct {
 	messagesChannel    chan peer_channels.Message
 	updatesChannel     chan interface{}
 	handleThreadCount  int
+	channelTimeout     atomic.Value
 }
 
 func NewPeerChannelsListener(peerChannelsClient peer_channels.Client, readToken string,
-	channelSize, handleThreadCount int, handleMessage HandleMessage,
+	channelSize, handleThreadCount int, channelTimeout time.Duration, handleMessage HandleMessage,
 	handleUpdate HandleUpdate) *PeerChannelsListener {
-	return &PeerChannelsListener{
+	result := &PeerChannelsListener{
 		peerChannelsClient: peerChannelsClient,
 		readToken:          readToken,
 		handleMessage:      handleMessage,
@@ -53,10 +55,19 @@ func NewPeerChannelsListener(peerChannelsClient peer_channels.Client, readToken 
 		updatesChannel:     make(chan interface{}, channelSize),
 		handleThreadCount:  handleThreadCount,
 	}
+
+	result.channelTimeout.Store(channelTimeout)
+	return result
 }
 
-func (l *PeerChannelsListener) AddUpdate(update interface{}) {
-	l.updatesChannel <- update
+func (l *PeerChannelsListener) AddUpdate(update interface{}) error {
+	select {
+	case l.updatesChannel <- update:
+	case <-time.After(l.channelTimeout.Load().(time.Duration)):
+		return peer_channels.ErrChannelTimeout
+	}
+
+	return nil
 }
 
 func (l *PeerChannelsListener) Run(ctx context.Context, interrupt <-chan interface{}) error {
@@ -65,7 +76,8 @@ func (l *PeerChannelsListener) Run(ctx context.Context, interrupt <-chan interfa
 
 	listenThread, listenComplete := threads.NewInterruptableThreadComplete("Peer Channel Listen",
 		func(ctx context.Context, interrupt <-chan interface{}) error {
-			return l.listen(ctx, interrupt, CopyString(l.readToken))
+			return l.listen(ctx, interrupt, CopyString(l.readToken),
+				l.channelTimeout.Load().(time.Duration))
 		}, &listenWait)
 	selects = append(selects, reflect.SelectCase{
 		Dir:  reflect.SelectRecv,
@@ -118,12 +130,16 @@ func (l *PeerChannelsListener) Run(ctx context.Context, interrupt <-chan interfa
 	}
 
 	listenThread.Stop(ctx)
+	waitWarning := logger.NewWaitingWarning(ctx, time.Second*3, "Listen thread")
 	listenWait.Wait()
+	waitWarning.Cancel()
 
 	for _, handleThread := range handleThreads {
 		handleThread.Stop(ctx)
 	}
+	waitWarning = logger.NewWaitingWarning(ctx, time.Second*3, "Handle threads")
 	handleWait.Wait()
+	waitWarning.Cancel()
 
 	var errs []error
 	if err := listenThread.Error(); err != nil {
@@ -149,13 +165,13 @@ func CopyString(s string) string {
 }
 
 func (l *PeerChannelsListener) listen(ctx context.Context, interrupt <-chan interface{},
-	readToken string) error {
+	readToken string, channelTimeout time.Duration) error {
 
 	for {
 		logger.Info(ctx, "Connecting to peer channel service to listen for messages")
 
-		if err := l.peerChannelsClient.Listen(ctx, readToken, true, l.messagesChannel,
-			interrupt); err != nil {
+		if err := l.peerChannelsClient.Listen(ctx, readToken, true, channelTimeout,
+			l.messagesChannel, interrupt); err != nil {
 			if errors.Cause(err) == threads.Interrupted {
 				return nil
 			}

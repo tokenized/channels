@@ -78,8 +78,8 @@ github.com/tokenized/envelope v1.1.0/go.mod h1:9+0tL1NKJQNnFRjGhaHCIWG9K6QQnh8Hq
 github.com/tokenized/logger v0.1.3 h1:Vq/2jEgqyDfjJPgoMo773/bn7ZUow8EWSAY8+gFdTQI=
 github.com/tokenized/logger v0.1.3/go.mod h1:bA5PfUEFwtUy0yEIIq4Q3ZwBk1kIZTkYIRASq3fPw+k=
 github.com/tokenized/pkg v0.6.0/go.mod h1:reIXdZflcfFbuX1RvX90yAjlYVJaUiYDc5CWJ6qCQww=
-github.com/tokenized/pkg v0.7.1-0.20240322160211-478383da3ef4 h1:TbJKi/prbECBgrCvfqKZ1eO1GC4m2u/A2bshrsOiRjI=
-github.com/tokenized/pkg v0.7.1-0.20240322160211-478383da3ef4/go.mod h1:c1xkP+9ON6kwoMQB9LMpy34YcqUwqNXjPMlltYTYZIc=
+github.com/tokenized/pkg v0.7.1-0.20240430143333-d07a56355119 h1:c8WkqmaRJhb4WysA32J/aHCPDZR3SM4oj7ABDfTp0Qg=
+github.com/tokenized/pkg v0.7.1-0.20240430143333-d07a56355119/go.mod h1:c1xkP+9ON6kwoMQB9LMpy34YcqUwqNXjPMlltYTYZIc=
 github.com/tokenized/specification v1.3.2-0.20240319164336-d3d9a076f61e h1:HqmcmA3sfl3pEeIhBTqEsglSC/F8EQnNWZ2n4z36DmY=
 github.com/tokenized/specification v1.3.2-0.20240319164336-d3d9a076f61e/go.mod h1:RNuhWeIw0/QNVKmJQyY12a76HbS+353abuDT/ibgmfg=
 github.com/tokenized/threads v0.1.2 h1:olWOi2kZ4GLX4XmRbgHJzMbaTxp7CKMdiMbHJjKZaRQ=
