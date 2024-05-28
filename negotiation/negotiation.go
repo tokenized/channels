@@ -1,6 +1,7 @@
 package negotiation
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"strings"
@@ -26,6 +27,10 @@ const (
 	StatusNeedsReceivers       = Status(0x08)
 	StatusNeedsSenders         = Status(0x10)
 	StatusNeedsSignedAndInputs = StatusNeedsSigned | StatusNeedsInputs
+)
+
+var (
+	NotNegotiationMessage = errors.New("Not Negotiation Message")
 )
 
 type Transaction struct {
@@ -196,7 +201,7 @@ func CompileTransaction(message channels.Message,
 	case *channels.Response:
 		result.Response = m
 	default:
-		return nil, nil, errors.New("Not tx or response")
+		return nil, nil, NotNegotiationMessage
 	}
 
 	var unusedWrappers []channels.Wrapper
@@ -530,6 +535,10 @@ func (v Status) String() string {
 	}
 
 	return strings.Join(values, "|")
+}
+
+func (v Status) Value() (driver.Value, error) {
+	return int64(v), nil
 }
 
 // Scan converts from a database column.

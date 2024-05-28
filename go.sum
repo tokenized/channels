@@ -69,8 +69,8 @@ github.com/scottjbarr/redis v0.0.1/go.mod h1:HIzxEkRRpIDMZHOU/iavqyd+uQeQwqQncXo
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.5.1 h1:nOGnQDM7FYENwehXlg/kFVnos3rEvtKTjRvOWSzb6H4=
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
-github.com/tokenized/bitcoin_interpreter v0.1.1 h1:l78d1x28TptKd3ijy6ZmCA09ro29RVYqcISeexv+KWA=
-github.com/tokenized/bitcoin_interpreter v0.1.1/go.mod h1:bSMGbxCxf/NrBmq+VYQS94P/ctOAhFis/nO4y6RwI/c=
+github.com/tokenized/bitcoin_interpreter v0.1.2-0.20240528194918-eefd05aa5a2b h1:veXvOndYT+mMyD727/OKnOC0ga7GvXC5ca4jHcmBmZI=
+github.com/tokenized/bitcoin_interpreter v0.1.2-0.20240528194918-eefd05aa5a2b/go.mod h1:bSMGbxCxf/NrBmq+VYQS94P/ctOAhFis/nO4y6RwI/c=
 github.com/tokenized/config v0.2.2 h1:dGfFdv3P6JK9TcHvud34vozocm3Qq2Wxbc9PRctgDL8=
 github.com/tokenized/config v0.2.2/go.mod h1:CfxdNBZh5W1CCmE4bKHrSq7dgKQiNUxdrDtmvhemq2w=
 github.com/tokenized/envelope v1.1.0 h1:D30lQzMwtV5wj1YXBHxycSaBJ1MFINL/HuT0kAmznd4=
