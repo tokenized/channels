@@ -10,7 +10,7 @@ Several methods of communication can be used for transaction negotiation.
 
 ### BSVAlias Negotiation
 
-[BSVAlias](https://github.com/tokenized/pkg/blob/master/bsvalias/NegotiationTransaction.md) (Paymail) endpoints can used to communicate the negotiation transactions. BSVAlias is not ideal for transaction negotiation because it isn't designed to be peer to peer. BSVAlias is designed to be peer to service. For example, the common endpoints allow you to communicate with the service and make a payment without the other user being involved. BSVAlias can however be used to deliver peer to peer messages, while still allowing some automated responses. This means that the endpoint doesn't return a response, but just returns an acknowledgement that the message was received. Then the response will be delivered via a callback to the initiator's BSVAlias service.
+[BSVAlias](https://github.com/tokenized/pkg/blob/master/bsvalias/NegotiationTransaction.md) (Paymail) endpoints can be used to communicate the negotiation transactions. BSVAlias is not ideal for transaction negotiation because it isn't designed to be peer to peer. BSVAlias is designed to be peer to service. For example, the common endpoints allow you to communicate with the service and make a payment without the other user being involved. BSVAlias can however be used to deliver peer to peer messages, while still allowing some automated responses. This means that the endpoint doesn't return a response, but just returns an acknowledgement that the message was received. Then the response will be delivered via a callback to the initiator's BSVAlias service.
 
 ### Peer Channels
 
